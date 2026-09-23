@@ -1,0 +1,5 @@
+# -*- coding: utf-8 -*-
+# 基础依赖；按项目需要增删并锁定版本。
+jsonschema>=4.23,<5
+pytest>=8.3,<9
+PyYAML>=6.0,<7

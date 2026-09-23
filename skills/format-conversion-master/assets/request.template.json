@@ -1,0 +1,6 @@
+{
+  "input_file": "<必填：EPUB 文件路径>",
+  "target_format": "pdf",
+  "output_file": null,
+  "paper_size": "a4"
+}

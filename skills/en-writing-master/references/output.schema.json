@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["mode", "tool_id", "language_items"],
+  "properties": {
+    "mode": {"enum": ["write", "grade", "polish"]},
+    "tool_id": {"type": "string"},
+    "topic": {"type": "string"},
+    "essay": {"type": "string"},
+    "target_score": {"type": ["integer", "null"]},
+    "target_band": {
+      "type": ["object", "null"],
+      "required": ["target", "lower", "upper", "tolerance"],
+      "properties": {
+        "target": {"type": "integer"},
+        "lower": {"type": "integer"},
+        "upper": {"type": "integer"},
+        "tolerance": {"type": "integer", "minimum": 0}
+      }
+    },
+    "score_expectation": {
+      "type": "object",
+      "required": ["target", "full_score", "band", "reason"],
+      "properties": {
+        "target": {"type": ["integer", "null"]},
+        "full_score": {"type": "integer", "exclusiveMinimum": 0},
+        "band": {"type": ["object", "null"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "target_info": {
+      "type": "object",
+      "required": ["target", "band", "gap"],
+      "properties": {
+        "target": {"type": ["integer", "null"]},
+        "band": {"type": ["object", "null"]},
+        "gap": {"type": ["integer", "null"]}
+      }
+    },
+    "score_preview": {"type": "object"},
+    "score": {
+      "type": "object",
+      "required": ["value", "full_score", "dimension_scores", "reason"],
+      "properties": {
+        "value": {"type": "integer"},
+        "full_score": {"type": "integer", "exclusiveMinimum": 0},
+        "reason": {"type": "string"},
+        "dimension_scores": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["dimension", "score", "max_score", "reason"],
+            "properties": {
+              "id": {"type": "string"},
+              "dimension": {"type": "string"},
+              "score": {"type": "integer"},
+              "max_score": {"type": "integer", "exclusiveMinimum": 0},
+              "reason": {"type": "string"},
+              "evidence": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        }
+      }
+    },
+    "overall_evaluation": {"type": "string"},
+    "organization_analysis": {"$ref": "#/$defs/organization_analysis"},
+    "evidence": {"type": "object"},
+    "sentence_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sentence_index", "original", "status", "evaluation"],
+        "properties": {
+          "sentence_index": {"type": "integer", "minimum": 1},
+          "original": {"type": "string"},
+          "status": {"enum": ["keep", "revise", "delete"]},
+          "evaluation": {"type": "string"},
+          "suggestion": {"type": ["string", "null"]},
+          "revised": {"type": ["string", "null"]}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"status": {"const": "revise"}}},
+            "then": {
+              "required": ["revised"],
+              "properties": {"revised": {"type": "string", "minLength": 1}}
+            }
+          }
+        ]
+      }
+    },
+    "original_essay": {"type": "string"},
+    "polished_essay": {"type": "string"},
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["optimization_index", "summary", "locations"],
+        "properties": {
+          "optimization_index": {"type": "integer", "minimum": 1},
+          "summary": {"type": "string", "minLength": 1},
+          "locations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["sentence_index", "original", "revised", "reason"],
+              "properties": {
+                "sentence_index": {"type": "integer", "minimum": 1},
+                "original": {"type": "string", "minLength": 1},
+                "revised": {"type": "string", "minLength": 1},
+                "reason": {"type": "string", "minLength": 1},
+                "issue_type": {"type": "string"},
+                "affected_dimension": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "score_delta": {
+      "type": ["object", "null"],
+      "required": ["before", "after", "delta"],
+      "properties": {
+        "before": {"type": "integer"},
+        "after": {"type": "integer"},
+        "delta": {"type": "integer"}
+      }
+    },
+    "score_before": {"type": "object"},
+    "score_after": {"type": "object"},
+    "improvement_status": {"type": "string"},
+    "no_improvement_reason": {"type": ["string", "null"]},
+    "feedback_used": {"type": "string"},
+    "quality_checks": {
+      "type": "object",
+      "required": ["word_count", "sentence_count", "paragraph_count", "within_word_limit", "issue_count"],
+      "properties": {
+        "word_count": {"type": "integer", "minimum": 0},
+        "sentence_count": {"type": "integer", "minimum": 0},
+        "paragraph_count": {"type": "integer", "minimum": 0},
+        "within_word_limit": {"type": "boolean"},
+        "issue_count": {"type": "integer", "minimum": 0},
+        "target_match": {"type": "boolean"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["input_sha256"],
+      "properties": {
+        "input_sha256": {"type": "string", "minLength": 64},
+        "parent_run_id": {"type": ["string", "null"]},
+        "grade_run_id": {"type": ["string", "null"]}
+      }
+    },
+    "language_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "expression", "meaning_zh", "usage_case"],
+        "properties": {
+          "type": {"enum": ["word", "phrase", "sentence_pattern", "expression"]},
+          "expression": {"type": "string", "minLength": 1},
+          "meaning_zh": {"type": "string", "minLength": 1},
+          "usage_case": {"type": "string", "minLength": 1},
+          "source_locator": {"type": "string", "minLength": 1},
+          "source_section": {"type": "string", "minLength": 1},
+          "selection_source": {"enum": ["matched_in_text", "tool_language_bank", "agent_selected"]}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "organization_analysis": {
+      "type": "object",
+      "required": ["paragraph_count", "recommended_paragraph_count", "status", "summary", "paragraph_reviews", "logic_issues", "suggestions"],
+      "properties": {
+        "paragraph_count": {"type": "integer", "minimum": 1},
+        "recommended_paragraph_count": {"type": "integer", "minimum": 1},
+        "status": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "paragraph_reviews": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["paragraph_index", "role", "status", "evidence"],
+            "properties": {
+              "paragraph_index": {"type": "integer", "minimum": 1},
+              "role": {"type": "string", "minLength": 1},
+              "status": {"type": "string", "minLength": 1},
+              "evidence": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "missing_roles": {"type": "array", "items": {"type": "string"}},
+        "logic_issues": {"type": "array", "items": {"type": "string"}},
+        "suggestions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"mode": {"const": "write"}}}, "then": {"required": ["topic", "essay", "score_expectation", "target_score", "score_preview", "target_band", "quality_checks", "provenance"]}},
+    {"if": {"properties": {"mode": {"const": "grade"}}}, "then": {"required": ["score", "overall_evaluation", "organization_analysis", "evidence", "sentence_reviews", "quality_checks", "target_info", "provenance"]}},
+    {"if": {"properties": {"mode": {"const": "polish"}}}, "then": {"required": ["original_essay", "polished_essay", "changes", "score_before", "score_after", "score_delta", "improvement_status", "no_improvement_reason", "feedback_used", "quality_checks", "provenance"]}}
+  ]
+}

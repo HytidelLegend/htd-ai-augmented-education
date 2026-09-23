@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interaction-delivery-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "mode", "run_id", "source_result_sha256", "message_markdown", "prompt_code_block", "confirmation_question", "next_state"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "mode": {"const": "preview"},
+    "run_id": {"type": "string", "minLength": 1},
+    "source_result_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "message_markdown": {"type": "string", "minLength": 1},
+    "prompt_code_block": {"type": "string", "minLength": 1},
+    "confirmation_question": {"type": "string", "minLength": 1},
+    "next_state": {"const": "paused_imagen_confirmation"}
+  },
+  "additionalProperties": false
+}

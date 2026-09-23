@@ -1,0 +1,11 @@
+{
+  "name": "htd-ai-augmented-education-marketplace",
+  "plugins": [
+    {
+      "name": "htd-ai-augmented-education",
+      "source": "./",
+      "strict": true,
+      "version": "0.1.0"
+    }
+  ]
+}

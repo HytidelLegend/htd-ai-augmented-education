@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "content": {"type": "string", "minLength": 1},
+    "input_file": {"type": ["string", "null"]},
+    "model": {"enum": ["image-2", "image-2.5"]},
+    "aspect_ratio": {"type": "string", "minLength": 1}
+  },
+  "anyOf": [{"required": ["content"]}, {"required": ["input_file"]}],
+  "additionalProperties": false
+}

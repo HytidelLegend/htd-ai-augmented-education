@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.1",
+  "tool_id": "replace-me",
+  "display_name": "待填写工具名称",
+  "source": {
+    "source_type": "text",
+    "source_files": [],
+    "source_sha256": [],
+    "selection_policy": "writing_only",
+    "selection_audit": {
+      "included_sections": [],
+      "excluded_sections": [],
+      "removed_translation_subsections": 0,
+      "counts": {"source_blocks": 0, "included_blocks": 0, "excluded_blocks": 0, "ignored_before_writing_scope": 0}
+    }
+  },
+  "artifact_manifest": {},
+  "writing_rules": [],
+  "scoring": {
+    "default_full_score": 15,
+    "dimensions": [
+      {"id": "content", "label": "内容", "max_score": 5},
+      {"id": "organization", "label": "结构", "max_score": 5},
+      {"id": "language", "label": "语言", "max_score": 5}
+    ],
+    "levels": [
+      {"min": 13, "max": 15, "label": "优秀", "description": "任务完成充分，结构清晰，语言准确且有较丰富的表达。"},
+      {"min": 10, "max": 12, "label": "良好", "description": "任务基本完成，结构和语言较稳定，仍有可提升之处。"},
+      {"min": 7, "max": 9, "label": "达标", "description": "能够表达主要观点，但论证、衔接或语言准确性需要加强。"},
+      {"min": 0, "max": 6, "label": "需改进", "description": "任务完成度或可读性不足，需要优先修复基本问题。"}
+    ]
+  },
+  "language_bank": {"advanced_words": [], "phrases": [], "sentence_patterns": [], "expressions": []}
+}

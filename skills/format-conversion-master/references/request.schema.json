@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "format-conversion-request-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["input_file", "target_format"],
+  "properties": {
+    "input_file": {"type": "string", "minLength": 1},
+    "target_format": {"type": "string", "enum": ["pdf", "md"]},
+    "output_file": {"type": ["string", "null"], "minLength": 1},
+    "paper_size": {"type": "string", "const": "a4"}
+  }
+}

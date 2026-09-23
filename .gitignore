@@ -1,0 +1,31 @@
+logs/
+outputs/
+tmp/
+.env
+runtime/*
+!runtime/README.md
+!runtime/.venv/
+runtime/.venv/*
+!runtime/.venv/requirements.txt
+node_modules/
+__pycache__/
+*.py[cod]
+.cache/
+.DS_Store
+Thumbs.db
+
+git-push.ps1
+
+tests/
+
+# Root-level request and English-writing sample payloads
+/en_*.json
+/request*.json
+
+# User-provided en-writing-master tools; keep the public usage notice tracked
+/skills/en-writing-master/tools/*
+!/skills/en-writing-master/tools/README.md
+
+skills/make-tape-collage/
+
+examples/

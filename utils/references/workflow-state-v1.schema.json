@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "workflow-state-v1.schema.json",
+  "title": "Content Factory Workflow State v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workflow",
+    "run_id",
+    "status",
+    "current_stage",
+    "resume_stage",
+    "current_object_id",
+    "current_batch_id",
+    "completed_steps",
+    "pending_decisions",
+    "error",
+    "created_at",
+    "updated_at",
+    "last_heartbeat_at",
+    "event_sequence"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "workflow": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1},
+    "current_stage": {"type": "string", "minLength": 1},
+    "resume_stage": {"type": ["string", "null"]},
+    "current_object_id": {"type": ["string", "null"]},
+    "current_batch_id": {"type": ["string", "null"]},
+    "completed_steps": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "pending_decisions": {"type": "array", "items": {"type": "object"}},
+    "error": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"type": "string", "minLength": 1},
+            "message": {"type": "string", "minLength": 1},
+            "details": {}
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "created_at": {"type": "string", "minLength": 19},
+    "updated_at": {"type": "string", "minLength": 19},
+    "last_heartbeat_at": {"type": "string", "minLength": 19},
+    "event_sequence": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": true
+}
+

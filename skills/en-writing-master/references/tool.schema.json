@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "tool_id", "display_name", "source", "artifact_manifest", "writing_rules", "scoring", "language_bank"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "tool_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "display_name": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "required": ["source_type", "source_files", "source_sha256", "selection_policy"],
+      "properties": {
+        "source_type": {"type": "string"},
+        "source_files": {"type": "array", "items": {"type": "string"}},
+        "source_sha256": {"type": "array", "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+        "converter": {"type": ["string", "null"]},
+        "converter_run_id": {"type": ["string", "null"]},
+        "selection_policy": {"enum": ["writing_only", "writing_and_transferable_translation"]},
+        "selection_audit": {
+          "type": "object",
+          "required": ["included_sections", "excluded_sections", "removed_translation_subsections", "counts"],
+          "properties": {
+            "included_sections": {"type": "array", "items": {"$ref": "#/$defs/sectionAudit"}},
+            "excluded_sections": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {"$ref": "#/$defs/sectionAudit"},
+                  {"type": "object", "required": ["reason"], "properties": {"reason": {"type": "string", "minLength": 1}}}
+                ]
+              }
+            },
+            "removed_translation_subsections": {"type": "integer", "minimum": 0},
+            "counts": {
+              "type": "object",
+              "required": ["source_blocks", "included_blocks", "excluded_blocks"],
+              "properties": {
+                "source_blocks": {"type": "integer", "minimum": 0},
+                "included_blocks": {"type": "integer", "minimum": 0},
+                "excluded_blocks": {"type": "integer", "minimum": 0},
+                "ignored_before_writing_scope": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "artifact_manifest": {
+      "type": "object",
+      "required": ["TOOL.md", "writing-rules.md", "scoring-rubric.md", "language-bank.md", "source-notes.md"],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(TOOL|writing-rules|scoring-rubric|language-bank|source-notes)\\.md$": {
+          "type": "object",
+          "required": ["path", "sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "path": {"type": "string"},
+            "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+          }
+        }
+      }
+    },
+    "writing_rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["title", "content", "source_category", "writing_relevance", "source_locator"],
+        "properties": {
+          "title": {"type": "string"},
+          "section_kind": {"enum": ["essay", "framework", "vocabulary", "meta"]},
+          "content": {"type": "string"},
+          "source_category": {"enum": ["writing_direct", "transferable_translation"]},
+          "writing_relevance": {"enum": ["high", "medium", "low"]},
+          "source_locator": {"type": "string"}
+        }
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "required": ["default_full_score", "dimensions", "levels"],
+      "properties": {
+        "default_full_score": {"type": "integer", "exclusiveMinimum": 0},
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "max_score"],
+            "properties": {
+              "id": {"type": "string"},
+              "label": {"type": "string"},
+              "max_score": {"type": "integer", "exclusiveMinimum": 0}
+            }
+          }
+        },
+        "levels": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["min", "max", "label", "description"],
+            "properties": {
+              "min": {"type": "integer", "minimum": 0},
+              "max": {"type": "integer", "minimum": 0},
+              "label": {"type": "string", "minLength": 1},
+              "description": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "language_bank": {
+      "type": "object",
+      "required": ["advanced_words", "phrases", "sentence_patterns", "expressions"],
+      "properties": {
+        "advanced_words": {"type": "array", "items": {"$ref": "#/$defs/languageItem"}},
+        "phrases": {"type": "array", "items": {"$ref": "#/$defs/languageItem"}},
+        "sentence_patterns": {"type": "array", "items": {"$ref": "#/$defs/languageItem"}},
+        "expressions": {"type": "array", "items": {"$ref": "#/$defs/languageItem"}}
+      }
+    }
+  },
+  "$defs": {
+    "sectionAudit": {
+      "type": "object",
+      "required": ["title", "source_locator"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "source_locator": {"type": "string", "minLength": 1}
+      }
+    },
+    "languageItem": {
+      "type": "object",
+      "required": ["type", "expression", "meaning_zh", "usage_case"],
+      "properties": {
+        "type": {"enum": ["word", "phrase", "sentence_pattern", "expression"]},
+        "expression": {"type": "string", "minLength": 1},
+        "meaning_zh": {"type": "string", "minLength": 1},
+        "usage_case": {"type": "string", "minLength": 1},
+        "source_locator": {"type": "string", "minLength": 1},
+        "source_section": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

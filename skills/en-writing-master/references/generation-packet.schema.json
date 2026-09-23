@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["tool_id", "topic", "requirements", "writing_rules", "scoring_dimensions", "language_items", "output_contract"],
+  "properties": {
+    "tool_id": {"type": "string", "minLength": 1},
+    "topic": {"type": "string"},
+    "requirements": {"type": "object"},
+    "writing_rules": {"type": "array", "items": {"type": "object"}},
+    "scoring_dimensions": {"type": "array", "items": {"type": "object"}},
+    "language_items": {"type": "array", "items": {"type": "object"}},
+    "output_contract": {
+      "type": "object",
+      "required": ["required_fields", "instruction"],
+      "properties": {
+        "required_fields": {"type": "array", "items": {"type": "string"}},
+        "instruction": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

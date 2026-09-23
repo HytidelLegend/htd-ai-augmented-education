@@ -1,0 +1,14 @@
+{
+  "name": "htd-ai-augmented-education",
+  "displayName": "AI 辅助教育",
+  "description": "面向学习规划与英语备考的脚本优先、可恢复 Agent 项目。",
+  "skills": [
+    "./skills/htd-ai-augmented-education",
+    "./skills/git-remote-diff",
+    "./skills/sensitive-commit-check",
+    "./skills/format-conversion-master",
+    "./skills/en-writing-master",
+    "./skills/render-handwritten-essay-card",
+    "./skills/project-doc-audit"
+  ]
+}

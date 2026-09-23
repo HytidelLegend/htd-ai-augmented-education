@@ -1,0 +1,100 @@
+schema_version: "1.0"
+text_extensions:
+  - .cfg
+  - .css
+  - .csv
+  - .html
+  - .ini
+  - .js
+  - .json
+  - .jsonl
+  - .log
+  - .jsx
+  - .md
+  - .py
+  - .sql
+  - .toml
+  - .ts
+  - .tsx
+  - .tsv
+  - .txt
+  - .xml
+  - .yaml
+  - .yml
+  - .ass
+binary_or_office_extensions:
+  - .7z
+  - .db
+  - .doc
+  - .docx
+  - .gif
+  - .gz
+  - .jpeg
+  - .jpg
+  - .mov
+  - .mp3
+  - .mp4
+  - .odp
+  - .ods
+  - .odt
+  - .pdf
+  - .png
+  - .ppt
+  - .pptx
+  - .sqlite
+  - .sqlite3
+  - .svg
+  - .wav
+  - .webp
+  - .xls
+  - .xlsx
+  - .zip
+regression_directory_names:
+  - tests
+  - fixtures
+  - examples
+  - samples
+  - assets
+  - prompts
+  - references
+regression_file_markers:
+  - test_
+  - _test.
+  - regression
+  - example
+  - sample
+history_roots:
+  - logs
+history_exclude_prefixes:
+  - logs/sensitive-commit-check
+synthetic_markers:
+  - SYNTHETIC_
+  - TEST_
+  - MOCK_
+  - DUMMY_
+  - example.invalid
+  - example.com
+max_text_bytes: 5242880
+semantic_markers:
+  personal_fortune:
+    - 八字
+    - 四柱
+    - 出生时间
+    - 出生时分
+    - 出生地点
+    - 大运
+    - 流年
+    - 流月
+    - 流日
+  business_confidential:
+    - 客户名单
+    - 未公开产品
+    - 商业战略
+    - 内部定价
+    - 路线图
+  financial_legal:
+    - 资产负债表
+    - 现金流表
+    - 银行账号
+    - 税务资料
+    - 身份证号

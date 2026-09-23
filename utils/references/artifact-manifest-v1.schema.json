@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "artifact-manifest-v1.schema.json",
+  "title": "Content Factory Artifact Manifest v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workflow",
+    "run_id",
+    "status",
+    "created_at",
+    "updated_at",
+    "lineage",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "workflow": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "minLength": 19},
+    "updated_at": {"type": "string", "minLength": 19},
+    "lineage": {"type": "object"},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "path", "sha256", "size_bytes", "sources"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1, "pattern": "^[^\\\\]+$"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size_bytes": {"type": "integer", "minimum": 0},
+          "schema_version": {"type": ["string", "integer"]},
+          "sources": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

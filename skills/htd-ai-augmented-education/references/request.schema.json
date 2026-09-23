@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "htd-ai-augmented-education-request.schema.json",
+  "title": "Project Router Request",
+  "type": "object",
+  "required": ["query"],
+  "properties": {
+    "query": {"type": "string", "minLength": 1},
+    "mode": {
+      "type": "string",
+      "enum": ["auto", "project_info", "task_routing"],
+      "default": "auto"
+    }
+  },
+  "additionalProperties": false
+}
