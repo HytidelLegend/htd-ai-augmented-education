@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -43,6 +44,9 @@ TRANSITIONS = {
     "archiving_agent_review": {"semantic_review_completed"},
     "semantic_review_completed": {"verification_completed"},
     "verification_completed": TERMINAL_STATES,
+    "needs_user_decision": {"archiving_user_decision"},
+    "archiving_user_decision": {"decision_applied"},
+    "decision_applied": {"verification_completed"},
 }
 
 
@@ -159,20 +163,104 @@ def scan_file(item: dict[str, Any]) -> list[dict[str, Any]]:
     return findings
 
 
-def _terminal_target(findings: list[dict[str, Any]]) -> str:
-    if any(
+def _finding_id(finding: dict[str, Any]) -> str:
+    existing = finding.get("finding_id")
+    if existing:
+        return str(existing)
+    identity = {
+        "file": finding.get("file"),
+        "source_scope": finding.get("source_scope"),
+        "category": finding.get("category"),
+        "fingerprint": finding.get("fingerprint"),
+        "evidence": finding.get("evidence"),
+    }
+    encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _normalize_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for finding in findings:
+        item = dict(finding)
+        item["finding_id"] = _finding_id(item)
+        normalized.append(item)
+    return normalized
+
+
+def _decision_map(decisions: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        str(item["finding_id"]): str(item["decision"])
+        for item in decisions
+        if item.get("finding_id") and item.get("decision")
+    }
+
+
+def _effective_finding(finding: dict[str, Any]) -> dict[str, Any]:
+    """Apply semantic review to non-high findings while preserving original evidence."""
+    if (
         finding.get("risk_level") == "high"
         or finding.get("recommendation") in {"block", "replace_or_confirm"}
+    ):
+        return finding
+    review = finding.get("semantic_review")
+    if not isinstance(review, dict):
+        return finding
+    effective = dict(finding)
+    for key in ("risk_level", "category", "recommendation", "confidence"):
+        if key in review:
+            effective[key] = review[key]
+    return effective
+
+
+def _pending_findings(
+    findings: list[dict[str, Any]], decisions: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    resolved = _decision_map(decisions or [])
+    return [
+        finding for finding in findings
+        if (
+            _effective_finding(finding).get("risk_level") == "medium"
+            or _effective_finding(finding).get("recommendation") == "confirm"
+        )
+        and resolved.get(_finding_id(finding)) != "allow"
+    ]
+
+
+def _terminal_target(
+    findings: list[dict[str, Any]], decisions: list[dict[str, Any]] | None = None,
+) -> str:
+    resolved = _decision_map(decisions or [])
+    if any(
+        _effective_finding(finding).get("risk_level") == "high"
+        or _effective_finding(finding).get("recommendation") in {"block", "replace_or_confirm"}
         for finding in findings
     ):
         return "blocked"
-    if any(
-        finding.get("risk_level") == "medium"
-        or finding.get("recommendation") == "confirm"
-        for finding in findings
-    ):
+    if any(decision == "block" for decision in resolved.values()):
+        return "blocked"
+    if _pending_findings(findings, decisions):
         return "needs_user_decision"
     return "approved"
+
+
+def _merge_review_findings(
+    findings: list[dict[str, Any]], review_findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = _normalize_findings(findings)
+    by_id = {item["finding_id"]: item for item in merged}
+    for review_finding in review_findings:
+        item = dict(review_finding)
+        target_id = str(item.get("finding_id", ""))
+        if target_id and target_id in by_id:
+            by_id[target_id]["semantic_review"] = {
+                key: value for key, value in item.items() if key != "finding_id"
+            }
+            continue
+        normalized = _normalize_findings([item])[0]
+        if normalized["finding_id"] not in by_id:
+            merged.append(normalized)
+            by_id[normalized["finding_id"]] = normalized
+    return merged
 
 
 def summarize_history_findings(findings: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -215,9 +303,10 @@ def write_report(state: dict[str, Any]) -> None:
     ]
     if findings:
         for finding in findings:
+            effective = _effective_finding(finding)
             lines.append(
-                f"- `{finding.get('file', '')}` — {finding.get('risk_level', '')} / "
-                f"{finding.get('category', '')}：{finding.get('evidence', '')}"
+                f"- `{finding.get('file', '')}` — {effective.get('risk_level', '')} / "
+                f"{effective.get('category', '')}：{finding.get('evidence', '')}"
             )
     else:
         lines.append("- 未发现敏感信息。")
@@ -226,6 +315,16 @@ def write_report(state: dict[str, Any]) -> None:
         (f"- `{scope}`：{count}" for scope, count in sorted(scope_counts.items())),
     )
     if not scope_counts:
+        lines.append("- 无")
+    decisions = state.get("user_decisions", [])
+    lines.extend(["", "## 用户决策", ""])
+    if decisions:
+        for decision in decisions:
+            lines.append(
+                f"- `{decision.get('finding_id', '')}` — {decision.get('decision', '')}："
+                f"{decision.get('reason', '')}"
+            )
+    else:
         lines.append("- 无")
     history_summary = state.get("history_findings_summary", {})
     lines.extend(["", "## 历史运行敏感命中", ""])
@@ -288,7 +387,7 @@ def start(scope: str, supplemental_scope: str) -> dict[str, Any]:
             ))
 
     cross_findings = cross_scope_matches(commit_findings + skill_findings, history_index)
-    deterministic_findings = commit_findings + skill_findings + cross_findings
+    deterministic_findings = _normalize_findings(commit_findings + skill_findings + cross_findings)
     advance(state, "cross_scope_matches_completed", cross_scope_findings=cross_findings,
             findings=deterministic_findings)
     write_json(run_dir(run_id) / "review_packet.json", {
@@ -339,19 +438,100 @@ def review(run_id: str, input_path: Path) -> dict[str, Any]:
         )
     archive_json_input(input_path, run_dir(run_id) / "agent-review.json", payload)
     advance(state, "archiving_agent_review", archived_review=str(run_dir(run_id) / "agent-review.json"))
-    findings = state.get("findings", []) + payload["findings"]
+    findings = _merge_review_findings(state.get("findings", []), payload["findings"])
     advance(state, "semantic_review_completed", findings=findings,
-            reviewed_files=payload["reviewed_files"], decisions=payload["decisions"])
+            reviewed_files=payload["reviewed_files"], agent_decisions=payload["decisions"])
     advance(state, "verification_completed", verification={
         "review_paths_valid": True,
         "expected_reviewed_file_count": len(expected_paths),
         "actual_reviewed_file_count": len(reviewed_paths),
     })
     target = _terminal_target(findings)
-    advance(state, target, pending_decisions=(findings if target == "needs_user_decision" else []))
+    pending = _pending_findings(findings) if target == "needs_user_decision" else []
+    advance(state, target, pending_decisions=pending)
     write_report(state)
     result = {"run_id": run_id, "status": target, "findings": findings,
               "report": str(run_dir(run_id) / "report.md")}
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return result
+
+
+def submit_decision(run_id: str, input_path: Path) -> dict[str, Any]:
+    global ACTIVE_STATE
+    state = load(run_id)
+    ACTIVE_STATE = state
+    if state["status"] != "needs_user_decision":
+        raise RuntimeError(f"当前状态不接受用户决策：{state['status']}")
+    payload = json.loads(input_path.read_text(encoding="utf-8"))
+    decisions = payload.get("decisions") if isinstance(payload, dict) else None
+    if (
+        not isinstance(decisions, list)
+        or not decisions
+        or payload.get("decision_confirmed") is not True
+    ):
+        raise RuntimeError("decision JSON 必须包含非空 decisions，并将 decision_confirmed 设置为 true")
+
+    findings = _normalize_findings(state.get("findings", []))
+    finding_by_id = {item["finding_id"]: item for item in findings}
+    fingerprint_to_ids: dict[str, list[str]] = {}
+    for finding in findings:
+        fingerprint = finding.get("fingerprint")
+        if fingerprint:
+            fingerprint_to_ids.setdefault(str(fingerprint), []).append(finding["finding_id"])
+
+    normalized_decisions: list[dict[str, Any]] = []
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            raise RuntimeError("每个 decision 必须是对象")
+        finding_id = str(decision.get("finding_id", ""))
+        if finding_id not in finding_by_id:
+            legacy_matches = fingerprint_to_ids.get(finding_id, [])
+            if len(legacy_matches) == 1:
+                finding_id = legacy_matches[0]
+            else:
+                raise RuntimeError(f"decision 引用了未知或不唯一的 finding_id：{finding_id}")
+        action = str(decision.get("decision", ""))
+        reason = str(decision.get("reason", "")).strip()
+        if action not in {"allow", "block"} or not reason:
+            raise RuntimeError("decision 必须为 allow 或 block，且 reason 不能为空")
+        finding = finding_by_id[finding_id]
+        if action == "allow" and (
+            finding.get("risk_level") == "high"
+            or finding.get("recommendation") in {"block", "replace_or_confirm"}
+        ):
+            raise RuntimeError("高风险或历史指纹匹配不能通过用户确认放行")
+        normalized_decisions.append({
+            "finding_id": finding_id,
+            "decision": action,
+            "reason": reason,
+        })
+
+    existing_archives = list(run_dir(run_id).glob("user-decision-*.json"))
+    archived_path = run_dir(run_id) / f"user-decision-{len(existing_archives) + 1:03d}.json"
+    archive_json_input(input_path, archived_path, payload)
+    advance(state, "archiving_user_decision", archived_user_decision=str(archived_path))
+    prior = {
+        item["finding_id"]: item
+        for item in state.get("user_decisions", [])
+        if item.get("finding_id")
+    }
+    for decision in normalized_decisions:
+        prior[decision["finding_id"]] = decision
+    user_decisions = list(prior.values())
+    advance(state, "decision_applied", findings=findings, user_decisions=user_decisions)
+    verification = dict(state.get("verification", {}))
+    verification["user_decisions_valid"] = True
+    advance(state, "verification_completed", verification=verification)
+    target = _terminal_target(findings, user_decisions)
+    pending = _pending_findings(findings, user_decisions) if target == "needs_user_decision" else []
+    advance(state, target, pending_decisions=pending)
+    write_report(state)
+    result = {
+        "run_id": run_id,
+        "status": target,
+        "pending_decisions": pending,
+        "report": str(run_dir(run_id) / "report.md"),
+    }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result
 
@@ -364,7 +544,11 @@ def verify(run_id: str) -> tuple[dict[str, Any], int]:
     result = {"run_id": run_id, "status": state["status"], "valid": valid,
               "can_proceed": state["status"] == "approved" and valid}
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return result, 0 if valid else 1
+    if not valid or state["status"] == "blocked":
+        return result, 4
+    if state["status"] == "needs_user_decision":
+        return result, 3
+    return result, 0
 
 
 def resume(run_id: str) -> dict[str, Any]:
@@ -375,6 +559,7 @@ def resume(run_id: str) -> dict[str, Any]:
         "semantic_review_required": "读取 review_packet.json，填写 review-template.json 后执行 review",
         "semantic_review_completed": "执行 verification 和终态判定",
         "verification_completed": "根据 findings 推进到终态",
+        "needs_user_decision": "填写用户决策 JSON 后执行 submit-decision",
     }
     result = {"run_id": run_id, "status": state["status"],
               "next_action": actions.get(state["status"], "无需恢复；按当前状态处理")}
@@ -401,6 +586,9 @@ def main() -> int:
     review_parser = sub.add_parser("review")
     review_parser.add_argument("--run-id", required=True)
     review_parser.add_argument("--input", type=Path, required=True)
+    decision_parser = sub.add_parser("submit-decision")
+    decision_parser.add_argument("--run-id", required=True)
+    decision_parser.add_argument("--input", type=Path, required=True)
     verify_parser = sub.add_parser("verify")
     verify_parser.add_argument("--run-id", required=True)
     resume_parser = sub.add_parser("resume")
@@ -418,6 +606,8 @@ def main() -> int:
             print(json.dumps(load(args.run_id), ensure_ascii=False, indent=2))
         elif args.command == "review":
             review(args.run_id, args.input)
+        elif args.command == "submit-decision":
+            submit_decision(args.run_id, args.input)
         elif args.command == "verify":
             _, code = verify(args.run_id)
             return code

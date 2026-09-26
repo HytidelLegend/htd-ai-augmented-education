@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["sentence"],
+  "properties": {
+    "sentence": {"type": "string", "minLength": 1},
+    "subject": {"type": "string"},
+    "model": {"enum": ["image-2", "image-2.5", "doubao", "other"]},
+    "aspect_ratio": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

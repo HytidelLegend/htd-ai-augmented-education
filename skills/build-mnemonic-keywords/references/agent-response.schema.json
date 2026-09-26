@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["selected_keywords", "keyword_mappings", "mnemonic", "scene", "sensory_hooks", "order_note", "image_prompt", "self_check"],
+  "properties": {
+    "selected_keywords": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "keyword_mappings": {
+      "type": "array", "minItems": 1,
+      "items": {"type": "object", "required": ["keyword", "role", "familiar_object", "scene_action", "mnemonic_cue", "cue_type"], "properties": {
+        "keyword": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "familiar_object": {"type": "string", "minLength": 1},
+        "scene_action": {"type": "string", "minLength": 1},
+        "mnemonic_cue": {"type": "string", "minLength": 1},
+        "cue_type": {"enum": ["exact", "homophone"]}
+      }, "additionalProperties": false}
+    },
+    "mnemonic": {"type": "string", "minLength": 1},
+    "scene": {"type": "string", "minLength": 1},
+    "sensory_hooks": {"type": "array", "items": {"type": "string"}},
+    "order_note": {"type": "string"},
+    "image_prompt": {"type": "string", "minLength": 1},
+    "self_check": {
+      "type": "object",
+      "required": ["fit", "reason", "recommendation", "principle_checks"],
+      "properties": {
+        "fit": {"enum": ["good", "weak", "bad"]},
+        "reason": {"type": "string"},
+        "recommendation": {"type": "string"},
+        "principle_checks": {
+          "type": "object",
+          "required": ["source_grounded", "familiar", "coherent", "memorable", "point_keywords", "shortened_long_terms", "concretized_abstract_terms", "color", "imagination", "rhythm", "dynamic", "sensory", "sexual_association", "sequence_logic", "coding", "dimensionality"],
+          "additionalProperties": false,
+          "patternProperties": {
+            ".*": {
+              "type": "object",
+              "required": ["applicable", "passed", "reason"],
+              "properties": {
+                "applicable": {"type": "boolean"},
+                "passed": {"type": "boolean"},
+                "reason": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

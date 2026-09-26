@@ -31,6 +31,7 @@ python skills/<skill-name>/scripts/cli.py <command> ...
 | Skill | 功能 | 调用时机 | CLI 示例 |
 |---|---|---|---|
 | `en-writing-master` | 创建作文工具，并按已有工具执行英语写作、批改和润色 | 用户提供写作规则、写作题目、作文或润色请求时 | `python skills/en-writing-master/scripts/cli.py list-tools --root .` |
+| `build-mnemonic-keywords` | 将一句背诵内容转为关键词、联想场景和生图提示词，并在确认后调用 `/imagegen` | 用户要求联想记忆、记忆口诀、场景化背诵或将记忆法生成图片时 | `start → resume → deliver --mode preview → 用户确认 → resume` |
 | `render-handwritten-essay-card` | 将英语作文生成通用英语考试答题卡手写印刷体照片提示词，并在确认后调用 `/imagen` | 用户提供英语作文并要求生成答题卡照片时 | `python skills/render-handwritten-essay-card/scripts/cli.py start --root . --input request.json` |
 
 ### AI 辅助教学
@@ -111,6 +112,24 @@ scenario_examples:
 运行遵循 `prepared → validating_request → normalizing_essay → extracting_layout_requirements → composing_prompt → validating_prompt → publishing_prompt_preview → preview_ready → delivering_prompt_preview → paused_imagen_confirmation`。必须先调用 `deliver --mode preview`，原样在对话中展示一个完整提示词代码块，再询问是否调用 `/imagen`。接受后，Skill 直接发起项目内 `/imagen`；图片文件或返回地址保存到 `outputs/render-handwritten-essay-card/runs/<run-id>/`，并通过 `resume --image-path` 或 `resume --image-url` 完成验证和发布。拒绝调用时仅发布提示词并完成。状态与事件位于 `logs/render-handwritten-essay-card/runs/<run-id>/`。
 
 每个 skill 的 `SKILL.md` 还应记录其专用参数、状态机、产物路径和恢复方式。
+
+
+### build-mnemonic-keywords
+
+#### 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: memorize-one-sentence
+    user_request: "请帮我记住我国温度带从南到北的顺序，并给一个能生成图片的联想场景"
+    when_to_call: "用户提供一句需要背诵的知识，要求提取关键词、联想记忆或视觉化图片时"
+    invocation: "start → resume → deliver --mode preview → 用户确认 → resume"
+    expected_output: "返回关键词、联想记忆、自检结论、生图提示词；确认后归档 /imagegen 图片"
+```
+
+入口为 `runtime/.venv/Scripts/python.exe skills/build-mnemonic-keywords/scripts/cli.py`，支持 `start`、`resume`、`deliver --mode preview`、`status` 和 `verify`。输入仅允许一句，可为长难句；共享规范 `utils/references/mnemonic-association-principles.md` 统一定义附件原则、四步编句流程、关键词覆盖、常见性、逻辑通顺、易记性、长词压缩、抽象词具体化以及场景增强方法。流程读取并记录共享规范哈希，先提取完整关键词或代表字词，再编句并校验每个所选词的原词或完整谐音是否实际出现。`start` 生成候选关键词和 `generation_packet.json` 后暂停，Agent 以 `references/agent-response.schema.json` 提交少量结构化内容。脚本负责状态迁移、schema 校验、原则检查、口诀覆盖校验、Markdown 渲染、提示词预览和图片归档；覆盖、原则检查或自然度不通过时只发布关键词和说明，不发布候选口诀或生图提示词。
+
+状态机为 `prepared → validating_request → normalizing_sentence → loading_principles_reference → extracting_keywords → building_generation_packet → paused_agent_generation → validating_agent_response → composing_result → self_checking → publishing_prompt_preview → preview_ready → paused_image_confirmation`；覆盖、原则检查或自然度不通过时从 `self_checking` 进入 `paused_quality_review`，只发布关键词和说明。图片确认后进入 `invoking_imagegen → verifying_image_result → publishing → completed`。若联想牵强、生硬、增加负担或不适合该知识，结果必须标记 `weak`/`bad` 并给出不使用联想法或改用其他方法的建议。参考资料保留用户和“单易之”提供的全部案例；附件和通用记忆原则统一维护在 `utils/references/mnemonic-association-principles.md`。
 
 ### project-doc-audit
 

@@ -8,6 +8,7 @@
     "./skills/sensitive-commit-check",
     "./skills/format-conversion-master",
     "./skills/en-writing-master",
+    "./skills/build-mnemonic-keywords",
     "./skills/render-handwritten-essay-card",
     "./skills/project-doc-audit"
   ]

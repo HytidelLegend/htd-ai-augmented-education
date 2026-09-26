@@ -74,6 +74,22 @@ synthetic_markers:
   - DUMMY_
   - example.invalid
   - example.com
+public_contact_email:
+  file_names:
+    - README.md
+    - CODE_OF_CONDUCT.md
+    - CONTRIBUTING.md
+    - SECURITY.md
+  context_markers:
+    - 联系
+    - 邮件
+    - 邮箱
+    - 授权
+    - contact
+    - email
+semantic_marker_exempt_paths:
+  - skills/sensitive-commit-check/SKILL.md
+  - utils/references/sensitive-scan-policy.yaml
 max_text_bytes: 5242880
 semantic_markers:
   personal_fortune:

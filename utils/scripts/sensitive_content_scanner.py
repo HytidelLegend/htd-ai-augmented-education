@@ -83,6 +83,20 @@ def _is_synthetic(value: str, policy: dict[str, Any]) -> bool:
     return any(str(marker).casefold() in folded for marker in policy.get("synthetic_markers", []))
 
 
+def _is_public_contact_email(
+    relative: str, line_text: str, policy: dict[str, Any],
+) -> bool:
+    settings = policy.get("public_contact_email", {})
+    file_names = {str(item).casefold() for item in settings.get("file_names", [])}
+    if Path(relative).name.casefold() not in file_names:
+        return False
+    folded_line = line_text.casefold()
+    return any(
+        str(marker).casefold() in folded_line
+        for marker in settings.get("context_markers", [])
+    )
+
+
 def discover_skill_regression_files(root: Path, policy: dict[str, Any]) -> list[Path]:
     skills_root = root / ".agents" / "skills"
     if not skills_root.is_dir():
@@ -189,37 +203,54 @@ def scan_path(
             value = match.groupdict().get("value") or match.group(0)
             synthetic = _is_synthetic(value, policy)
             line = line_number(match.start())
-            risk = "low" if synthetic else default_risk
+            line_text = lines[line - 1] if lines else ""
+            public_contact = category == "email" and _is_public_contact_email(
+                relative, line_text, policy,
+            )
+            risk = "low" if synthetic or public_contact else default_risk
             findings.append({
                 "file": relative,
                 "source_scope": source_scope,
                 "risk_level": risk,
-                "category": "synthetic_fixture" if synthetic else category,
+                "category": (
+                    "synthetic_fixture" if synthetic
+                    else "public_contact_email" if public_contact
+                    else category
+                ),
                 "matched_category": category,
                 "evidence": f"第 {line} 行，内容指纹 {content_digest(value)[:12]}",
-                "recommendation": "allow" if synthetic else ("block" if risk == "high" else "confirm"),
+                "recommendation": (
+                    "allow" if synthetic
+                    else "allow_with_warning" if public_contact
+                    else "block" if risk == "high"
+                    else "confirm"
+                ),
                 "confidence": "high",
                 "fingerprint": content_digest(value),
                 "synthetic_fixture": synthetic,
             })
 
-    semantic_markers = policy.get("semantic_markers", {})
-    for category, markers in semantic_markers.items():
-        for marker in markers:
-            for match in re.finditer(re.escape(str(marker)), text):
-                line = line_number(match.start())
-                line_text = lines[line - 1] if lines else str(marker)
-                findings.append({
-                    "file": relative,
-                    "source_scope": source_scope,
-                    "risk_level": "medium",
-                    "category": category,
-                    "evidence": f"第 {line} 行包含语义标记“{marker}”，行指纹 {content_digest(line_text)[:12]}",
-                    "recommendation": "confirm",
-                    "confidence": "medium",
-                    "fingerprint": content_digest(line_text),
-                    "synthetic_fixture": False,
-                })
+    semantic_exempt_paths = {
+        str(item) for item in policy.get("semantic_marker_exempt_paths", [])
+    }
+    if relative not in semantic_exempt_paths:
+        semantic_markers = policy.get("semantic_markers", {})
+        for category, markers in semantic_markers.items():
+            for marker in markers:
+                for match in re.finditer(re.escape(str(marker)), text):
+                    line = line_number(match.start())
+                    line_text = lines[line - 1] if lines else str(marker)
+                    findings.append({
+                        "file": relative,
+                        "source_scope": source_scope,
+                        "risk_level": "medium",
+                        "category": category,
+                        "evidence": f"第 {line} 行包含语义标记“{marker}”，行指纹 {content_digest(line_text)[:12]}",
+                        "recommendation": "confirm",
+                        "confidence": "medium",
+                        "fingerprint": content_digest(line_text),
+                        "synthetic_fixture": False,
+                    })
     return [file_record], findings
 
 
