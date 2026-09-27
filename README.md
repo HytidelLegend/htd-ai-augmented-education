@@ -56,6 +56,7 @@
 ```text
 .
 ├── .claude-plugin/       # 插件清单与版本配置
+├── applications/       # 即开即用的 AI 辅助学习小工具
 ├── docs/                 # PRD、架构、贡献、安全和 Skills 文档
 ├── runtime/              # 隔离运行环境及配置说明
 ├── skills/               # 各项 Skill 的契约与实现
@@ -80,6 +81,7 @@
 - [Skills 说明书](docs/Skills_说明书.md)：能力、调用入口与运行约束
 - [贡献指南](docs/contributing/贡献指南.md)：贡献要求
 - [安全说明](docs/security/安全说明.md)：安全文档入口
+- [AI 辅助学习应用](applications/README.md)：即开即用小工具目录及添加约定
 
 ## 作者信息
 

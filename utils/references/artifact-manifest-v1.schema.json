@@ -18,8 +18,8 @@
     "workflow": {"type": "string", "minLength": 1},
     "run_id": {"type": "string", "minLength": 1},
     "status": {"type": "string", "minLength": 1},
-    "created_at": {"type": "string", "minLength": 19},
-    "updated_at": {"type": "string", "minLength": 19},
+    "created_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"},
+    "updated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"},
     "lineage": {"type": "object"},
     "artifacts": {
       "type": "array",

@@ -13,6 +13,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterable
 
+try:
+    from .timestamp import iso_timestamp
+except ImportError:
+    from timestamp import iso_timestamp
+
 
 def _process_is_alive(pid: int) -> bool:
     """Return whether a process is alive without sending a signal on Windows.
@@ -140,7 +145,7 @@ def project_lock(lock_path: Path, owner: str):
             "owner": owner,
             "pid": os.getpid(),
             "host": socket.gethostname(),
-            "created_at_epoch": time.time(),
+            "created_at": iso_timestamp(),
         }
         os.write(
             descriptor,

@@ -17,6 +17,10 @@ python skills/<skill-name>/scripts/cli.py <command> ...
 | 5 | 可重试的运行时错误或外部命令失败 |
 | 6 | 依赖、运行环境或许可证预检失败 |
 
+## 时间戳
+
+所有 Skill 的时间字段使用本地时间、不带时区的 `YYYY-MM-DDTHH:MM:SS`；文件名和运行目录中的时间部分使用 `YYYYMMDDTHHMMSS`，同类对象冲突时追加 `_1`、`_2` 等后缀。实现统一调用 `utils/scripts/timestamp.py`。
+
 ## Skills 分类与调用概览
 
 ### 项目功能

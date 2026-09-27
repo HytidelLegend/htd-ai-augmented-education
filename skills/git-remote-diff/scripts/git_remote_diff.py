@@ -4,7 +4,6 @@ import argparse
 import json
 import subprocess
 import sys
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "utils" / "scripts"))
 from git_repository import GitCommandError, is_repository, redact_remote_url, run_git, status_entries  # noqa: E402
 from run_state import read_json, timestamp, write_json  # noqa: E402
+from timestamp import unique_filename_timestamp  # noqa: E402
 
 WORKFLOW = "git-remote-diff"
 
@@ -70,7 +70,10 @@ def render_markdown(data: dict[str, Any]) -> str:
 
 def execute(root: Path, run_id: str | None = None) -> dict[str, Any]:
     root = root.resolve()
-    run_id = run_id or (timestamp().replace("-", "").replace(":", "").replace("+", "") + "-" + uuid.uuid4().hex[:8])
+    if run_id is None:
+        runs = root / "logs" / WORKFLOW / "runs"
+        existing = [item.name.split("-", 1)[0] for item in runs.iterdir()] if runs.exists() else []
+        run_id = unique_filename_timestamp(existing)
     directory = run_dir(root, run_id); directory.mkdir(parents=True, exist_ok=True)
     previous = directory / "state.json"
     if previous.exists():

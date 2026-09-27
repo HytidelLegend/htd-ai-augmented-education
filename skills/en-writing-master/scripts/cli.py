@@ -7,7 +7,6 @@ import json
 import re
 import subprocess
 import sys
-import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -15,7 +14,7 @@ sys.path.insert(0, str(ROOT / "utils" / "scripts"))
 from source_normalization import SourceBlock, clean_markdown, select_writing_blocks_with_audit
 from language_extraction import extract_language_bank
 from structured_io import read_json, validate_json_schema, write_json, write_json_transaction, write_text_transaction
-from timestamp import iso_timestamp
+from timestamp import iso_timestamp, unique_filename_timestamp
 from essay_generator import build_generation_packet, validate_agent_draft
 from essay_metrics import metrics, sentences
 from essay_scoring import build_evidence, build_organization_evidence, integer_score, parse_target, score_from_agent_review, target_band
@@ -712,7 +711,10 @@ def _emit_cli_result(value: dict, output_format: str, *, allow_markdown: bool = 
 
 
 def _run(root: Path, mode: str, req: dict, run_id: str | None = None, state: dict | None = None) -> dict:
-    run_id = run_id or (iso_timestamp().replace(":", "").replace("-", "") + "-" + uuid.uuid4().hex[:8])
+    if run_id is None:
+        runs = root / "logs" / WORKFLOW / "runs"
+        existing = [item.name.split("-", 1)[0] for item in runs.iterdir()] if runs.exists() else []
+        run_id = unique_filename_timestamp(existing)
     if state is None:
         state = _new_state(run_id, mode)
         _run_dir(root, run_id).mkdir(parents=True, exist_ok=True)

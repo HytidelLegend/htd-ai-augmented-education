@@ -4,13 +4,16 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+try:
+    from .timestamp import iso_timestamp
+except ImportError:
+    from timestamp import iso_timestamp
 
 def timestamp() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return iso_timestamp()
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -28,4 +31,3 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-

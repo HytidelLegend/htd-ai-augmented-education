@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "beitu-diagnostic-event-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "sequence",
+    "timestamp",
+    "event",
+    "phase",
+    "projectId",
+    "editVersion",
+    "rectangleCount",
+    "result"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+    },
+    "event": {
+      "enum": [
+        "save_started",
+        "save_written",
+        "save_readback",
+        "save_verified",
+        "save_failed",
+        "project_created",
+        "project_switched",
+        "project_deleted"
+      ]
+    },
+    "phase": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "editVersion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rectangleCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "snapshotHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "persistedHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "writerId": {
+      "type": "string",
+      "pattern": "^[a-f0-9-]{36}$"
+    },
+    "operationId": {
+      "type": "string",
+      "pattern": "^[a-f0-9-]{36}$"
+    },
+    "writeSource": {
+      "enum": [
+        "create",
+        "edit",
+        "import",
+        "rename",
+        "unknown"
+      ]
+    },
+    "directoryName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "baseHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "diskHashAfterWrite": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "diskHashOnSwitch": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "baseRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "fileSize": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "fileLastModified": {
+      "type": "number",
+      "minimum": 0
+    },
+    "readbackSource": {
+      "enum": [
+        "fresh_handle",
+        "stable_fresh_handle",
+        "native_service"
+      ]
+    },
+    "targetFile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "pendingFile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "commitPhase": {
+      "enum": [
+        "pending_written",
+        "pending_verified",
+        "backup_written",
+        "final_replaced",
+        "final_verified",
+        "native_atomic_committed",
+        "native_atomic_verified"
+      ]
+    },
+    "rollbackDetected": {
+      "type": "boolean"
+    },
+    "conflictCode": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "result": {
+      "enum": [
+        "started",
+        "success",
+        "failed",
+        "skipped"
+      ]
+    },
+    "errorCode": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 120
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "actualRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "serviceWorkspace": {
+      "type": "string",
+      "maxLength": 1024
+    },
+    "servicePid": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "requestSource": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "conflictStage": {
+      "type": "string",
+      "maxLength": 120
+    }
+  }
+}
