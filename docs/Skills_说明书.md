@@ -51,7 +51,7 @@ python skills/<skill-name>/scripts/cli.py <command> ...
 | Skill | 功能 | 调用时机 | CLI 示例 |
 |---|---|---|---|
 | `git-remote-diff` | 比较本地仓库、远端默认分支和工作区 | 需要检查 Git 同步状态时 | `python skills/git-remote-diff/scripts/cli.py start --root .` |
-| `sensitive-commit-check` | 检查提交范围中的敏感信息 | 提交、推送或发布前 | `python skills/sensitive-commit-check/scripts/cli.py start --scope staged` |
+| `sensitive-commit-check` | 检查提交范围中的敏感信息 | 提交、推送或发布前 | `runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py start --scope staged --supplemental all` |
 | `format-conversion-master` | 执行可恢复的格式转换 | 用户要求转换文件格式时 | `python skills/format-conversion-master/scripts/cli.py start --input input.epub --to pdf` |
 
 ## 项目功能
@@ -150,7 +150,9 @@ scenario_examples:
 
 入口为 `runtime/.venv/Scripts/python.exe skills/project-doc-audit/scripts/cli.py`，支持 `start`、`status`、`verify` 和 `deliver`。它递归检查核心文档、`docs/**/*.md`、活动子目录下的 `README.md`、文件架构、插件与 Skills 注册、`VERSION` 与 marketplace 版本、`.env*` 键名，以及 `skills/`、`utils/`、`runtime/`（排除 `runtime/.venv`）中的 Python 第三方依赖、requirements 版本约束和虚拟环境实际安装版本，并检查文档内明确引用的项目路径。
 
-运行缓存位于 `logs/project-doc-audit/cache.json`，不提交 Git。报告位于 `outputs/project-doc-audit/runs/<run-id>/report.md`。状态机为 `prepared → discovering → loading_cache → comparing_snapshots → checking_structure → checking_documents → checking_skill_catalog → checking_skill_scenarios → checking_dependencies → checking_environment → validating_findings → rendering_report → verifying_report → completed`。Skill 还会校验各 `SKILL.md` front matter 的 `category` 与说明书分类是否一致，以及每个 Skill 详细章节是否包含结构化具体场景示例。Skill 只输出差异和修改建议，不自动修改文档；用户确认后再修改。
+对 `applications/*/application-audit.json` 声明的应用，脚本还读取 `package.json`、README、PRD、状态机和数据模型，比较应用版本、文档路径、实现状态、项目 JSON 字段和产物目录说明。每个应用的审计契约使用 `utils/references/application-audit.schema.json` 校验。
+
+运行缓存位于 `logs/project-doc-audit/cache.json`，不提交 Git。报告位于 `outputs/project-doc-audit/runs/<run-id>/report.md`。状态机为 `prepared → discovering → discovering_applications → loading_cache → loading_application_contracts → comparing_snapshots → checking_structure → checking_documents → checking_application_documents → checking_application_versions → checking_application_capabilities → checking_application_state_machines → checking_application_data_contracts → checking_skill_catalog → checking_skill_scenarios → checking_dependencies → checking_environment → validating_findings → rendering_report → verifying_report → completed`。Skill 还会校验各 `SKILL.md` front matter 的 `category` 与说明书分类是否一致，以及每个 Skill 详细章节是否包含结构化具体场景示例。Skill 只输出差异和修改建议，不自动修改文档；用户确认后再修改。
 
 ## 常用工具（与 AI 辅助教育无关）
 

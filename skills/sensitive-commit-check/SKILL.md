@@ -45,19 +45,19 @@ API key、token、密码、Cookie、数据库连接串、SSH/TLS/云服务私钥
 ## 命令
 
 ```text
-python scripts/sensitive_commit_check.py start [--scope worktree|staged] [--supplemental none|skills_regression|historical_runs|all]
-python scripts/sensitive_commit_check.py audit-skills [--scope worktree|staged]
-python scripts/sensitive_commit_check.py audit-history [--scope worktree|staged]
-python scripts/sensitive_commit_check.py status --run-id <RUN_ID>
-python scripts/sensitive_commit_check.py review --run-id <RUN_ID> --input <review.json>
-python scripts/sensitive_commit_check.py submit-decision --run-id <RUN_ID> --input <decision.json>
-python scripts/sensitive_commit_check.py verify --run-id <RUN_ID>
-python scripts/sensitive_commit_check.py resume --run-id <RUN_ID>
+runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py start [--scope worktree|staged] [--supplemental none|skills_regression|historical_runs|all]
+runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py audit-skills [--scope worktree|staged]
+runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py audit-history [--scope worktree|staged]
+runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py status --run-id <RUN_ID>
+runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py review --run-id <RUN_ID> --input <review.json>
+runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py submit-decision --run-id <RUN_ID> --input <decision.json>
+runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py verify --run-id <RUN_ID>
+runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py resume --run-id <RUN_ID>
 ```
 
 日志、状态、审查清单、历史指纹索引和 `report.md` 位于 `logs/sensitive-commit-check/runs/<run_id>/`。报告只保留脱敏证据、路径、行号和哈希，不复制完整 secret。`resume` 会读取最近检查点并输出下一步动作，不会猜测或重建状态。
 
-Agent 审查 JSON 至少包含 `findings`、`reviewed_files`、`decisions` 和 `review_confirmed: true`；每个发现包含 `file`、`risk_level`、`category`、`evidence`、`recommendation`、`confidence`，引用确定性发现时应附带其 `finding_id`，脚本会合并语义判断而不是重复追加。用户决策 JSON 包含非空 `decisions` 和 `decision_confirmed: true`；每项使用 `finding_id`、`decision: allow|block` 和非空 `reason`。高风险阻断，中风险请求确认，低风险允许并告警。测试中的凭据优先改用 `SYNTHETIC_`、`TEST_`、`MOCK_`、`DUMMY_` 前缀或 `.invalid` 域名；这些标记只降低确定性规则风险，不能覆盖历史指纹匹配。
+Agent 审查 JSON 至少包含 `findings`、`reviewed_files`、`decisions` 和 `review_confirmed: true`，并按 `references/review.schema.json` 校验；每个发现包含 `file`、`risk_level`、`category`、`evidence`、`recommendation`、`confidence`，引用确定性发现时应附带其 `finding_id`，脚本会合并语义判断而不是重复追加。用户决策 JSON 包含非空 `decisions` 和 `decision_confirmed: true`；每项使用 `finding_id`、`decision: allow|block` 和非空 `reason`。高风险阻断，中风险请求确认，低风险允许并告警。测试中的凭据优先改用 `SYNTHETIC_`、`TEST_`、`MOCK_`、`DUMMY_` 前缀或 `.invalid` 域名；这些标记只降低确定性规则风险，不能覆盖历史指纹匹配。
 # CLI
 
-入口：`python skills/sensitive-commit-check/scripts/cli.py`。支持 `create-request`、`start`、`status`、`resume`、`verify`、`submit-decision`；报告和状态写入 `logs/sensitive-commit-check/runs/<run-id>/`，日志仅为文本且不纳入 Git。退出码遵循 `docs/Skills_说明书.md`。
+入口：`runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py`。支持 `create-request`、`start`、`audit-skills`、`audit-history`、`status`、`review`、`resume`、`verify`、`submit-decision`；`start` 支持 `--supplemental none|skills_regression|historical_runs|all`。报告和状态写入 `logs/sensitive-commit-check/runs/<run-id>/`，日志仅为文本且不纳入 Git。退出码遵循 `docs/Skills_说明书.md`。

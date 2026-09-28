@@ -1,0 +1,18 @@
+{
+  "$schema": "../../utils/references/application-audit.schema.json",
+  "schema_version": 1,
+  "application_id": "背图工具",
+  "source_root": "applications/背图工具",
+  "documents": {
+    "readme": "applications/背图工具/README.md",
+    "prd": "docs/PRDs/背图工具.md"
+  },
+  "version": {
+    "source": "package.json",
+    "field": "version"
+  },
+  "implementation": {
+    "state_machine": "applications/背图工具/src/model.ts",
+    "data_model": "applications/背图工具/src/model.ts"
+  }
+}

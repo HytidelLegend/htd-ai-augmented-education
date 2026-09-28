@@ -4,6 +4,7 @@ import ast, hashlib, json, os, re, subprocess, sys
 from pathlib import Path
 from typing import Any
 from skill_catalog import ALLOWED_CATEGORIES, load_documented_categories, load_documented_category_occurrences, load_documented_scenarios, load_skill_metadata, validate_scenario
+from application_contract import audit_applications
 
 EXCLUDED = {'.git', 'logs', 'outputs', 'tmp', '__pycache__', 'node_modules', '.cache', '.pytest_cache'}
 
@@ -87,7 +88,7 @@ def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str,
         text=p.read_text(encoding='utf-8')
         for token in re.findall(r'`([^`]+)`', text):
             token=token.strip().replace('\\','/')
-            if not token or token.startswith(('http://','https://','<','python ','runtime/.venv/Scripts/python.exe ')) or any(ch.isspace() for ch in token) or '<' in token or token in {'SKILL.md','README.md'}: continue
+            if not token or token.startswith(('http://','https://','<','python ','runtime/.venv/Scripts/python.exe ')) or any(ch.isspace() for ch in token) or '<' in token or token in {'SKILL.md','README.md','project.json','package.json'}: continue
             candidate=root/Path(token)
             if ('/' in token or token.endswith(('.md','.json','.py','.txt','.yaml','.yml'))) and not candidate.exists():
                 add(findings,'missing_document_reference',rel(root,p),'更新失效的项目路径引用',token,'现有路径',[rel(root,p)],'deterministic')
@@ -170,7 +171,9 @@ def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str,
     if missing: add(findings,'dependency_not_installed','runtime/.venv/requirements.txt','安装 requirements 中缺失的依赖',missing,sorted(installed),['runtime/.venv/requirements.txt'])
     mismatch=sorted(k for k,spec in req.items() if k in installed and not version_ok(installed[k],spec))
     if mismatch: add(findings,'dependency_version_mismatch','runtime/.venv/requirements.txt','调整 requirements 或安装满足约束的版本',{k:installed[k] for k in mismatch},{k:req[k] for k in mismatch},['runtime/.venv'])
-    facts.update({'documents':facts['documents'],'version':version,'marketplace_version':market_version,'registered_skills':sorted(registered),'active_skills':sorted(active),'skill_metadata':metadata,'documented_categories':documented_categories,'documented_scenarios':documented,'requirements':req,'imports':sorted(third),'installed':installed,'env_keys':env_key_map})
+    application_findings, applications = audit_applications(root)
+    findings.extend(application_findings)
+    facts.update({'documents':facts['documents'],'version':version,'marketplace_version':market_version,'registered_skills':sorted(registered),'active_skills':sorted(active),'skill_metadata':metadata,'documented_categories':documented_categories,'documented_scenarios':documented,'requirements':req,'imports':sorted(third),'installed':installed,'env_keys':env_key_map,'applications': applications})
     cache={'schema_version':'1.0','checker_version':'1.1','facts':facts,'documents':facts['documents'],'finding_count':len(findings)}
     return {'schema_version':'1.0','findings':findings,'summary':{'checked_documents':len(docs),'findings':len(findings),'status':'differences_found' if findings else 'consistent'}}, cache
 

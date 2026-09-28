@@ -8,15 +8,21 @@ from pathlib import Path
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="sensitive-commit-check CLI")
-    parser.add_argument("command", choices=["create-request", "start", "status", "resume", "verify", "submit-decision"])
+    parser.add_argument("command", choices=["create-request", "start", "audit-skills", "audit-history", "status", "review", "resume", "verify", "submit-decision"])
     parser.add_argument("--run-id")
     parser.add_argument("--scope", choices=["worktree", "staged"], default="worktree")
+    parser.add_argument("--supplemental", choices=["none", "skills_regression", "historical_runs", "all"], default="all")
     parser.add_argument("--input")
     args, extra = parser.parse_known_args(argv)
     mapping = {"create-request": "start"}
     command = mapping.get(args.command, args.command)
     cmd = [sys.executable, str(Path(__file__).with_name("sensitive_commit_check.py")), command]
     if command == "start":
+        cmd += ["--scope", args.scope]
+        cmd += ["--supplemental", args.supplemental]
+    elif command == "audit-skills":
+        cmd += ["--scope", args.scope]
+    elif command == "audit-history":
         cmd += ["--scope", args.scope]
     if args.run_id:
         cmd += ["--run-id", args.run_id]
@@ -28,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "verify":
         return code if code in {3, 4} else 4
-    if args.command == "submit-decision":
+    if args.command in {"submit-decision", "review"}:
         return 3
     return 5
 

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["reviewed_files", "review_confirmed", "findings", "decisions"],
+  "properties": {
+    "run_id": {"type": "string"},
+    "reviewed_files": {"type": "array", "items": {"type": "string"}},
+    "review_confirmed": {"const": true},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "risk_level", "category", "evidence", "recommendation", "confidence"],
+        "properties": {
+          "finding_id": {"type": "string"},
+          "file": {"type": "string"},
+          "risk_level": {"type": "string"},
+          "category": {"type": "string"},
+          "evidence": {},
+          "recommendation": {"type": "string"},
+          "confidence": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "decisions": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

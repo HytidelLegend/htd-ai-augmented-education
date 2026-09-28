@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'utils' / 'scripts'
 from document_audit import audit
 from timestamp import iso_timestamp
 WORKFLOW='project-doc-audit'
-STAGES=['prepared','discovering','loading_cache','comparing_snapshots','checking_structure','checking_documents','checking_skill_catalog','checking_skill_scenarios','checking_dependencies','checking_environment','validating_findings','rendering_report','verifying_report','completed']
+STAGES=['prepared','discovering','discovering_applications','loading_cache','loading_application_contracts','comparing_snapshots','checking_structure','checking_documents','checking_application_documents','checking_application_versions','checking_application_capabilities','checking_application_state_machines','checking_application_data_contracts','checking_skill_catalog','checking_skill_scenarios','checking_dependencies','checking_environment','validating_findings','rendering_report','verifying_report','completed']
 def dirs(root, run): return root/'logs'/WORKFLOW/'runs'/run, root/'outputs'/WORKFLOW/'runs'/run
 def now(): return iso_timestamp()
 def save(p,obj): p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

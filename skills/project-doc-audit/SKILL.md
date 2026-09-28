@@ -22,11 +22,13 @@ runtime/.venv/Scripts/python.exe skills/project-doc-audit/scripts/cli.py deliver
 
 ## 状态机
 
-`prepared → discovering → loading_cache → comparing_snapshots → checking_structure → checking_documents → checking_skill_catalog → checking_skill_scenarios → checking_dependencies → checking_environment → validating_findings → rendering_report → verifying_report → completed`。
+`prepared → discovering → discovering_applications → loading_cache → loading_application_contracts → comparing_snapshots → checking_structure → checking_documents → checking_application_documents → checking_application_versions → checking_application_capabilities → checking_application_state_machines → checking_application_data_contracts → checking_skill_catalog → checking_skill_scenarios → checking_dependencies → checking_environment → validating_findings → rendering_report → verifying_report → completed`。
 
 脚本实际按所列状态逐步推进，检查确定性事实并保存 `logs/project-doc-audit/cache.json`。未变化的文档按哈希跳过；缓存不提交 Git。报告位于 `outputs/project-doc-audit/runs/<run-id>/report.md`。Skill 只提出差异和修改建议，不自动修改文档；用户同意后再执行修改。
 
 检查范围包括核心文档、`docs/**/*.md`、所有活动子目录中的 `README.md`、插件与 Skills 一致性、各 `SKILL.md` front matter 的 `category`、`docs/Skills_说明书.md` 中的 Skill 分类与具体场景示例、`VERSION` 与 marketplace 版本、`.env*` 键名和 `skills/`、`utils/`、`runtime/`（排除 `runtime/.venv`）中的 Python 第三方依赖及虚拟环境安装版本。
+
+`applications/*/application-audit.json` 声明每个应用的 README、PRD、版本来源、状态机和数据模型。脚本读取 `package.json`、实现源码、应用 README 与 PRD，确定性比较应用版本、文档路径、状态机、项目 JSON 字段和产物目录说明。应用审查不自动修改文件；应用快照缓存与报告仍分别写入 `logs/` 和 `outputs/`。应用契约 schema 位于 `utils/references/application-audit.schema.json`。
 
 `category` 必须是 `project_function`、`ai_assisted_learning`、`ai_assisted_teaching`、`ai_assisted_research` 或 `common_tool` 之一。具体场景示例只认说明书各 Skill 详细章节中的 YAML `scenario_examples`，每项必须包含 `id`、`user_request`、`when_to_call`、`invocation` 和 `expected_output`；单独的 CLI 命令不算场景示例。
 

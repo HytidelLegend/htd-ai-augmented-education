@@ -28,6 +28,12 @@ from sensitive_content_scanner import (  # noqa: E402
 from timestamp import iso_timestamp, unique_filename_timestamp  # noqa: E402
 from run_artifact_io import archive_json_input  # noqa: E402
 
+try:
+    from jsonschema import ValidationError, validate
+except ImportError:  # pragma: no cover - runtime requirements provide jsonschema.
+    ValidationError = ValueError
+    validate = None
+
 RUNS = ROOT / "logs" / "sensitive-commit-check" / "runs"
 TERMINAL_STATES = {"approved", "blocked", "needs_user_decision"}
 ACTIVE_STATE: dict[str, Any] | None = None
@@ -415,6 +421,13 @@ def review(run_id: str, input_path: Path) -> dict[str, Any]:
     if state["status"] != "semantic_review_required":
         raise RuntimeError(f"当前状态不接受 review：{state['status']}")
     payload = json.loads(input_path.read_text(encoding="utf-8"))
+    schema_path = ROOT / "skills" / "sensitive-commit-check" / "references" / "review.schema.json"
+    if validate is not None:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        try:
+            validate(instance=payload, schema=schema)
+        except ValidationError as exc:
+            raise RuntimeError(f"review JSON 不符合 schema：{exc.message}") from exc
     if (
         not isinstance(payload, dict)
         or not isinstance(payload.get("findings"), list)

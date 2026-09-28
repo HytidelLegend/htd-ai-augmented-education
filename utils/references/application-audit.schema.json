@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "application_id", "source_root", "documents", "version", "implementation"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": 1},
+    "application_id": {"type": "string", "minLength": 1},
+    "source_root": {"type": "string", "minLength": 1},
+    "documents": {
+      "type": "object",
+      "required": ["readme", "prd"],
+      "properties": {"readme": {"type": "string"}, "prd": {"type": "string"}},
+      "additionalProperties": false
+    },
+    "version": {
+      "type": "object",
+      "required": ["source", "field"],
+      "properties": {"source": {"type": "string"}, "field": {"type": "string"}},
+      "additionalProperties": false
+    },
+    "documented_version": {"type": ["string", "null"]},
+    "implementation": {
+      "type": "object",
+      "required": ["state_machine", "data_model"],
+      "properties": {"state_machine": {"type": "string"}, "data_model": {"type": "string"}},
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

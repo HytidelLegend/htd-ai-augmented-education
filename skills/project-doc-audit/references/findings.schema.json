@@ -4,7 +4,7 @@
   "required": ["schema_version", "findings", "summary"],
   "properties": {
     "schema_version": {"const": "1.0"},
-    "findings": {"type": "array", "items": {"type": "object", "required": ["kind", "path", "suggestion", "confidence", "status"], "properties": {"kind": {"type": "string", "enum": ["missing_document_reference", "missing_version", "version_mismatch", "skills_registry_mismatch", "skill_category_missing", "skill_category_invalid", "skill_category_mismatch", "skill_catalog_missing", "skill_catalog_duplicate", "skill_metadata_name_mismatch", "skill_scenario_missing", "skill_scenario_invalid", "skill_scenario_unknown", "undeclared_import", "environment_unreadable", "dependency_not_installed", "dependency_version_mismatch"]}}}},
+    "findings": {"type": "array", "items": {"type": "object", "required": ["kind", "path", "suggestion", "confidence", "status"], "properties": {"kind": {"type": "string", "enum": ["missing_document_reference", "missing_version", "version_mismatch", "skills_registry_mismatch", "skill_category_missing", "skill_category_invalid", "skill_category_mismatch", "skill_catalog_missing", "skill_catalog_duplicate", "skill_metadata_name_mismatch", "skill_scenario_missing", "skill_scenario_invalid", "skill_scenario_unknown", "env_key_not_declared", "undeclared_import", "environment_unreadable", "dependency_not_installed", "dependency_version_mismatch", "application_document_missing", "application_version_mismatch", "application_readme_prd_mismatch", "application_state_machine_mismatch", "application_data_contract_mismatch"]}}}},
     "summary": {"type": "object"}
   }
 }
