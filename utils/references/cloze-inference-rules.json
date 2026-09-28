@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "id": "upward-air-collection-density",
+      "answer": "向上排空气法",
+      "clue_pattern": "密度比空气(?P<clue>大)",
+      "description": "气体密度比空气大直接提示向上排空气法"
+    },
+    {
+      "id": "downward-air-collection-density",
+      "answer": "向下排空气法",
+      "clue_pattern": "密度比空气(?P<clue>小)",
+      "description": "气体密度比空气小直接提示向下排空气法"
+    }
+  ]
+}

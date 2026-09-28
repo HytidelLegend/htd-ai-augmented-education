@@ -9,6 +9,7 @@
     "./skills/format-conversion-master",
     "./skills/en-writing-master",
     "./skills/build-mnemonic-keywords",
+    "./skills/mark-memory-spans",
     "./skills/render-handwritten-essay-card",
     "./skills/project-doc-audit"
   ]
