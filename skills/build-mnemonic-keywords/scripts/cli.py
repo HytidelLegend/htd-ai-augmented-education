@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "utils" / "scripts"))
 from structured_io import read_json, validate_json_schema, write_json
+from term_glossary import matches as glossary_matches, run_terms, snapshot_terms, validate_keyword
 from timestamp import iso_timestamp
 from workflow_state import WorkflowDefinition, WorkflowStateStore
 
@@ -34,24 +35,34 @@ TRANSITIONS = {
 }
 for p in ("paused_input", "paused_agent_response", "paused_quality_review", "paused_image_unavailable"):
     TRANSITIONS[p] = {"prepared"}
+TRANSITIONS["paused_agent_response"] = {"validating_agent_response"}
 TRANSITIONS["paused_image_unavailable"] = {"invoking_imagegen", "prepared"}
 DEFINITION = WorkflowDefinition.build(name=WORKFLOW, transitions=TRANSITIONS)
 
 def log_dir(root, run_id): return root / "logs" / WORKFLOW / "runs" / run_id
 def out_dir(root, run_id): return root / "outputs" / WORKFLOW / "runs" / run_id
+def glossary_terms(root, run_id):
+    directory=log_dir(root,run_id); packet_path=directory/"generation_packet.json"
+    required=packet_path.is_file() and "glossary_rule" in read_json(packet_path).get("instructions",{})
+    return run_terms(directory,required=required)
 def store(root, run_id): return WorkflowStateStore(root=root, workflow=WORKFLOW, run_id=run_id, definition=DEFINITION, run_dir=log_dir(root, run_id), schema_path=ROOT / "utils/references/workflow-state-v1.schema.json")
 def state_new(run_id):
     now = iso_timestamp(); return {"schema_version":"1.0","workflow":WORKFLOW,"run_id":run_id,"status":"prepared","current_stage":"prepared","resume_stage":None,"current_object_id":None,"current_batch_id":None,"completed_steps":[],"pending_decisions":[],"error":None,"created_at":now,"updated_at":now,"last_heartbeat_at":now,"event_sequence":0}
 def advance(root, state, target, **updates): return store(root, state["run_id"]).transition(state, target, stage=target, completed_step=target, updates=updates)
 def pause(root, state, status, message, resume_stage): return store(root, state["run_id"]).pause(state, status=status, error_code=status.removeprefix("paused_"), message=message, resume_stage=resume_stage)
 
-def extract_keywords(sentence: str):
+def extract_keywords(sentence: str, terms: list[str] | None = None):
     # Deterministic candidate extraction; Agent chooses final instructional keywords.
+    protected = glossary_matches(sentence, terms or [])
     tokens = re.findall(r"[\u4e00-\u9fff]{1,8}|[A-Za-z][A-Za-z'-]*|\d+(?:\.\d+)?", sentence)
     stop = set("我国中国的和是为从到依次以及一个一种这个那个需要可以进行关于主要基本严格科学全民" )
-    seen=[]
+    seen=[item["text"] for item in protected]
     for tok in tokens:
         if tok in stop or len(tok)==1 and tok in "的和是为从到": continue
+        try:
+            validate_keyword(sentence, tok, protected)
+        except ValueError:
+            continue
         if tok not in seen: seen.append(tok)
     return [{"text": t, "source":"candidate", "role":"待判断", "familiar_object":"待转换"} for t in seen[:24]]
 
@@ -75,8 +86,9 @@ def write_packet(root, run_id, req, keywords, principles_sha256):
     packet = {"run_id":run_id,"input":req,"keyword_candidates":keywords,"instructions":{
         "one_sentence_only":True,"use_familiar_objects":True,"use_at_least_two_senses":True,
         "construction_steps":["提取关键词或代表词","适当调整要点顺序","编句子或故事","自检关键词覆盖"],
-        "cue_rule":"保留完整词就覆盖完整词；保留代表字词就覆盖代表字词；每项必须提供 mnemonic_cue 且该片段必须原样出现在 mnemonic 中",
+        "cue_rule":"每项必须提供 mnemonic_cue，且片段须出现在 mnemonic 中；术语的源关键词保持完整，口诀片段可用代表字词或谐音。",
         "keyword_mapping_required":True,"scene_must_recover_source_sentence":True,
+        "glossary_rule":"原文中的术语作为完整关键词；口诀片段可用代表字词或谐音，但须能帮助回忆完整术语。",
         "prefer_keywords_or_short_phrases":True,"shorten_long_terms":True,"concretize_abstract_terms":True,
         "reject_full_sentence_subpoints":True,"prefer_common_familiar_language":True,"require_logical_coherence":True,
         "preserve_hard_order":True,"allow_reorder_when_no_required_order":True,
@@ -95,6 +107,9 @@ def render_prompt(req, sentence, memory):
 
 def build_result(root, req, sentence, keywords, response, run_id):
     selected = response.get("selected_keywords") or [x["text"] for x in keywords]
+    protected = glossary_matches(sentence, glossary_terms(root, run_id))
+    for keyword in selected:
+        validate_keyword(sentence, keyword, protected)
     mappings = response["keyword_mappings"]
     by_keyword = {x["keyword"]: x for x in mappings}
     keywords = []
@@ -150,17 +165,24 @@ def cmd_start(args):
     for target in ("validating_request","normalizing_sentence","loading_principles_reference"): state=advance(root,state,target)
     principles_sha256 = load_principles_reference()
     state=advance(root,state,"extracting_keywords")
-    req["sentence"]=s; kw=extract_keywords(s); state=advance(root,state,"building_generation_packet"); write_json(log_dir(root,run_id)/"request.json",req); write_packet(root,run_id,req,kw,principles_sha256)
+    terms=snapshot_terms(log_dir(root,run_id),root/"utils/references/术语表.txt")
+    req["sentence"]=s; kw=extract_keywords(s,terms); state=advance(root,state,"building_generation_packet"); write_json(log_dir(root,run_id)/"request.json",req); write_packet(root,run_id,req,kw,principles_sha256)
     state=pause(root,state,"paused_agent_generation","需要 Agent 根据 generation_packet.json 生成联想方案","validating_agent_response")
     print(json.dumps({"status":state["status"],"run_id":run_id,"generation_packet":str(log_dir(root,run_id)/"generation_packet.json")},ensure_ascii=False)); return 3
 
 def cmd_resume(args):
     root=Path(args.root).resolve(); state=store(root,args.run_id).load(); d=out_dir(root,args.run_id); log=log_dir(root,args.run_id)
-    if state["status"]=="paused_agent_generation":
+    if state["status"] in {"paused_agent_generation","paused_agent_response"}:
         if not args.input: raise ValueError("首次恢复需要 --input agent-response.json")
         response=read_json(Path(args.input).resolve()); validate_json_schema(response,AGENT_SCHEMA)
         packet=read_json(log/"generation_packet.json"); req=packet["input"]; sentence=req["sentence"]; kw=packet["keyword_candidates"]
-        state=advance(root,state,"validating_agent_response"); result=build_result(root,req,sentence,kw,response,args.run_id); write_outputs(root,result)
+        state=advance(root,state,"validating_agent_response") if state["status"]=="paused_agent_generation" else store(root,args.run_id).resume(state)
+        try:
+            result=build_result(root,req,sentence,kw,response,args.run_id)
+        except ValueError as error:
+            state=pause(root,state,"paused_agent_response",str(error),"validating_agent_response")
+            print(json.dumps({"status":state["status"],"run_id":args.run_id,"error":str(error)},ensure_ascii=False)); return 3
+        write_outputs(root,result)
         state=advance(root,state,"composing_result"); state=advance(root,state,"self_checking")
         if result["self_check"]["fit"] != "good":
             state=pause(root,state,"paused_quality_review","没有找到自然顺口且覆盖全部关键词的句子","prepared")
@@ -207,8 +229,13 @@ def main():
         if a.command=="deliver": return cmd_deliver(a)
         root=Path(a.root).resolve(); state=store(root,a.run_id).load()
         if a.command=="status": print(json.dumps(state,ensure_ascii=False)); return 0
-        if a.command=="verify": validate_json_schema(read_json(out_dir(root,a.run_id)/"result.json"),OUT_SCHEMA); print(json.dumps({"status":"verified","run_id":a.run_id},ensure_ascii=False)); return 0
-        if not a.decision and state["status"]!="paused_agent_generation": raise ValueError("resume 图片阶段需要 --decision")
+        if a.command=="verify":
+            result=read_json(out_dir(root,a.run_id)/"result.json")
+            validate_json_schema(result,OUT_SCHEMA)
+            protected=glossary_matches(result["input"]["sentence"],glossary_terms(root,a.run_id))
+            for keyword in result["keywords"]: validate_keyword(result["input"]["sentence"],keyword["text"],protected)
+            print(json.dumps({"status":"verified","run_id":a.run_id},ensure_ascii=False)); return 0
+        if not a.decision and state["status"] not in {"paused_agent_generation","paused_agent_response"}: raise ValueError("resume 图片阶段需要 --decision")
         return cmd_resume(a)
     except Exception as e:
         print(json.dumps({"status":"error","error":str(e)},ensure_ascii=False)); return 2

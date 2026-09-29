@@ -8,6 +8,8 @@ description: 为初高中及其他需要背诵的一句知识生成关键词、�
 
 本 Skill 只处理一句输入，可为长难句。关键词、句子、故事和记忆场景必须遵循共享规范 [`utils/references/mnemonic-association-principles.md`](../../utils/references/mnemonic-association-principles.md)。编句固定经过四步：提取关键词或代表词、适当调整顺序、编句子或故事、自检关键词覆盖。保留“简洁”就必须出现“简洁”或其谐音；保留“简”就必须出现“简”或其谐音。性联想默认允许使用；夸张、猎奇、搞笑或荒诞表达也可以使用。用户给出的原句和附件才是记忆对象；Skill 不主动替学科编写知识例题。
 
+`utils/references/术语表.txt` 每行保存一个中文或英文术语。脚本优先把原句中的术语作为完整候选，并拒绝从术语中间截出的原文关键词；Agent 可在口诀中选代表字词、缩写、物象或谐音，但映射仍须指向完整术语，且能帮助回忆原词。词表快照保存在本次 `logs/build-mnemonic-keywords/runs/<run-id>/`，恢复和验证使用快照。
+
 联想法的适用边界：一句话中应包含多个要记忆的要点，且每个要点最好是一个关键词、词组或简短短语。联想句必须覆盖所有所选关键词，不能只覆盖其中一个字；它必须常见、逻辑通顺、容易记忆和复述。太长的词可换成简短词，抽象名词可换成具体事物。不得把关键词粗暴并列成生硬、陌生、增加记忆负担的句子；这种情况必须判为 `weak` 或 `bad`。如果找不到符合条件的句子，只展示提取出的关键词，不展示候选口诀或生图提示词。
 
 ## 命名候选
@@ -39,11 +41,13 @@ runtime/.venv/Scripts/python.exe skills/build-mnemonic-keywords/scripts/cli.py v
 
 `paused_image_confirmation` 后，用户拒绝生图则进入 `publishing → completed`；用户确认后，对话层调用 `/imagegen`，把图片路径或地址传给 `resume`，进入 `invoking_imagegen → verifying_image_result → publishing → completed`。输入、Agent 草稿、质量判断或图片结果不足时进入相应 `paused_*` 状态。退出码 3 表示需要用户决策或 Agent 结构化草稿，2 表示输入或 schema 错误，4 表示验证失败。
 
+Agent 草稿若把源关键词从术语中间切开，状态进入 `paused_agent_response`；修正后用同一 run ID 再次执行 `resume --input`，从 `validating_agent_response` 继续。
+
 ## Agent 结构化草稿
 
 `start` 生成 `generation_packet.json` 并暂停。Agent 只需按 `references/agent-response.schema.json` 提交：
 
-- `selected_keywords`：第一步从候选中筛出真正需要记忆的完整词或代表字词，按需要保留原顺序；
+- `selected_keywords`：第一步从候选中筛出真正需要记忆的完整词或代表字词；若原句命中术语表，源关键词必须保留完整术语，口诀片段仍可缩短；
 - `keyword_mappings`：逐项提供“关键词、关键词作用、熟悉物象、场景中的位置或动作、口诀中实际出现的片段、片段类型”；`mnemonic_cue` 必须原样出现在 `mnemonic` 中，`cue_type` 为 `exact` 或 `homophone`；
 - `mnemonic`：一句可复述的记忆法，关键词与物象的对应要清楚；
 - `scene`：包含主体、动作、夸张或幽默视觉关系的场景；
@@ -66,6 +70,7 @@ runtime/.venv/Scripts/python.exe skills/build-mnemonic-keywords/scripts/cli.py v
 
 - `references/mnemonic-examples.md`：用户提供案例、“单易之”医学案例和质量校准样例。
 - `../../utils/references/mnemonic-association-principles.md`：所有记忆相关 Skill 共用的编句、联想和场景原则。
+- `../../utils/references/术语表.txt`：两个记忆 Skill 共用的完整术语来源，每行一个中文或英文术语。
 - `references/request.schema.json`：请求 schema。
 - `references/agent-response.schema.json`：Agent 草稿 schema。
 - `references/output.schema.json`：正式结果 schema。

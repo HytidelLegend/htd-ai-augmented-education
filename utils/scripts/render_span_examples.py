@@ -6,7 +6,7 @@ import json
 import re
 from pathlib import Path
 
-from span_ops import masked_text, normalize_text, validate_cloze_quality, validate_spans
+from span_ops import masked_text, normalize_text, validate_classical_spans, validate_cloze_alignment, validate_cloze_quality, validate_spans
 
 MARKER = re.compile(r"「([^「」]+)」")
 
@@ -48,47 +48,65 @@ def validate(data: dict) -> None:
     examples = data.get("examples")
     if not isinstance(examples, list) or not examples:
         raise ValueError("案例源必须包含非空 examples")
-    required = {"title", "level", "source", "marked", "masked", "positive_reason", "negative", "negative_reason"}
+    required = {"title", "level", "source", "marked", "positive_reason", "negative", "negative_reason"}
     for index, example in enumerate(examples, start=1):
         if not isinstance(example, dict) or not required.issubset(example):
             raise ValueError(f"第 {index} 个案例字段不完整")
+        unexpected = set(example) - required - {"mode"}
+        if unexpected:
+            raise ValueError(f"第 {index} 个案例包含未使用字段：{', '.join(sorted(unexpected))}")
         if not all(isinstance(example[key], str) and example[key].strip() for key in required):
             raise ValueError(f"第 {index} 个案例存在空字段")
         source = normalize_text(example["source"])
         if source != example["source"]:
             raise ValueError(f"第 {index} 个案例原文换行未规范化")
+        mode = example.get("mode", "key_points")
+        if mode not in {"key_points", "classical_recitation"}:
+            raise ValueError(f"第 {index} 个案例模式无效")
         try:
             spans = extract_spans(source, example["marked"])
             extract_spans(source, example["negative"])
         except ValueError as exc:
             raise ValueError(f"第 {index} 个案例：{exc}") from exc
-        if masked_text(source, spans) != example["masked"]:
-            raise ValueError(f"第 {index} 个案例挖空文本与正面标记不一致")
-        quality = validate_cloze_quality(source, spans)
+        validate_cloze_alignment(source, spans, example["marked"], masked_text(source, spans))
+        quality = validate_classical_spans(source, spans) if mode == "classical_recitation" else validate_cloze_quality(source, spans)
         if not quality["pass"]:
             raise ValueError(f"第 {index} 个案例正面标记未通过质量检查：{quality['failures']}")
 
 
+def table_cell(value: str, code: bool = False) -> str:
+    value = value.replace("|", "\\|").replace("\n", "<br>")
+    return f"`{value}`" if code else value
+
+
 def render(data: dict) -> str:
-    blocks = [f"## {data['title']}", "", data["intro"]]
+    blocks = [f"## {data['title']}", "", data["intro"], "", "| 学段 | 主题 | 原文 | 正面 | 挖空 | 正面原因 | 负面 | 负面原因 |", "|---|---|---|---|---|---|---|---|"]
     for example in data["examples"]:
-        blocks.extend([
-            "",
-            f"### {example['level']}·{example['title']}",
-            "",
-            f"原文：`{example['source']}`",
-            "",
-            f"正面：`{example['marked']}`",
-            "",
-            f"挖空：`{example['masked']}`",
-            "",
-            f"说明：{example['positive_reason']}",
-            "",
-            f"负面：`{example['negative']}`",
-            "",
-            f"问题：{example['negative_reason']}",
-        ])
+        source = example["source"]
+        spans = extract_spans(source, example["marked"])
+        cells = [
+            table_cell(example["level"]), table_cell(example["title"]),
+            table_cell(source, code=True), table_cell(example["marked"], code=True),
+            table_cell(masked_text(source, spans), code=True),
+            table_cell(example["positive_reason"]), table_cell(example["negative"], code=True),
+            table_cell(example["negative_reason"]),
+        ]
+        blocks.append("| " + " | ".join(cells) + " |")
     return "\n".join(blocks)
+
+
+def render_document(sources: list[Path]) -> str:
+    sections: list[str] = []
+    section_ids: set[str] = set()
+    for source in sources:
+        data = json.loads(source.read_text(encoding="utf-8"))
+        validate(data)
+        if data["id"] in section_ids:
+            raise ValueError(f"案例区块 id 重复：{data['id']}")
+        section_ids.add(data["id"])
+        start, end = section_markers(data["id"])
+        sections.append(f"{start}\n{render(data)}\n{end}")
+    return "# Span 示例\n\n" + "\n\n".join(sections) + "\n"
 
 
 def update_document(target: Path, section: str, section_id: str) -> None:
@@ -108,14 +126,17 @@ def update_document(target: Path, section: str, section_id: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", required=True)
+    parser.add_argument("--source", required=True, action="append")
     parser.add_argument("--target", required=True)
     args = parser.parse_args()
-    source = Path(args.source)
     target = Path(args.target)
-    data = json.loads(source.read_text(encoding="utf-8"))
-    validate(data)
-    update_document(target, render(data), data["id"])
+    sources = [Path(source) for source in args.source]
+    if len(sources) > 1:
+        target.write_text(render_document(sources), encoding="utf-8", newline="\n")
+    else:
+        data = json.loads(sources[0].read_text(encoding="utf-8"))
+        validate(data)
+        update_document(target, render(data), data["id"])
     return 0
 
 

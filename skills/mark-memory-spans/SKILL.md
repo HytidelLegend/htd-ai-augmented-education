@@ -16,6 +16,7 @@ Agent 先根据输入语义判断：要背诵的古诗文默认使用 `classical
 - span 使用零基、左闭右开区间；必须对应规范化源文本中的连续字符。
 - span 不允许重叠，但允许相邻。
 - 专业名词、固定术语和不可拆分短语不得拆开。
+- `utils/references/术语表.txt` 是两个记忆 Skill 共用的术语表，每行一个中文或英文术语。普通模式中，脚本先给出完整术语候选，再校验 Agent 选择、`edit` 与 `verify` 的区间边界；术语是否作为考点仍按语义判断。运行时的词表快照保存在本次 `logs/mark-memory-spans/runs/<run-id>/`，恢复和验证使用快照。
 - 连续文本可以包含多个相邻记忆要点，例如 `用「分液漏斗」「萃取」……`。
 - 先保留句子的主语、谓语、判断关系和逻辑连接，再选择记忆要点；不要把几乎每个名词都标记。
 - 只选择最关键、最容易考查、能区分答案的核心概念、行动要求、价值判断和固定并列短语。
@@ -87,7 +88,8 @@ runtime/.venv/Scripts/python.exe skills/mark-memory-spans/scripts/cli.py verify 
 - `references/agent-response.schema.json`：Agent 判断模式；普通模式提交 span 与挖空判断，古诗文模式只提交选中的分句编号。
 - `references/edit-request.schema.json`：编辑请求和源文本哈希。
 - `references/output.schema.json`：正式结果。
-- `references/span-examples.md`：相邻 span、专业名词、历史材料边界和错误拆分案例。
+- `references/span-examples.md`：按主题分表的正反案例，每行包含学段、主题、原文、正面、挖空、正面原因、负面和负面原因。
+- `references/general-span-examples.json`：古诗文、相邻 span、固定短语、政治和历史案例的结构化源数据。
 - `references/geography-span-examples.json`：地理正面/负面案例的结构化源数据。
 - `references/physics-span-examples.json`：物理正面/负面案例的结构化源数据。
 - `references/math-span-examples.json`：数学公式、条件结论和解题步骤的正面/负面案例源数据。
@@ -95,26 +97,18 @@ runtime/.venv/Scripts/python.exe skills/mark-memory-spans/scripts/cli.py verify 
 - `references/biology-span-examples.json`：生物正面/负面案例的结构化源数据。
 - `references/literature-span-examples.json`：文学常识与名著正面/负面案例的结构化源数据。
 - `utils/references/cloze-inference-rules.json`：可确定的“答案—原因判据”映射，由共用挖空质量脚本检查。
+- `utils/references/术语表.txt`：每行一个中文或英文术语，原文命中时作为不可从中间切开的完整单元。
 
-参考案例 Markdown 由以下脚本生成，避免手工维护结构化案例内容：
+参考案例 Markdown 由共享 Python 脚本根据结构化数据生成。`masked` 不需要在案例 JSON 中重复保存，由脚本从正面 span 推导；古诗文案例使用 `mode: "classical_recitation"` 校验整分句边界。追加案例时在对应 JSON 的 `examples` 中增加一项，再运行以下命令重建全部表格：
 
 ```powershell
 runtime/.venv/Scripts/python.exe utils/scripts/render_span_examples.py `
+  --source skills/mark-memory-spans/references/general-span-examples.json `
   --source skills/mark-memory-spans/references/geography-span-examples.json `
-  --target skills/mark-memory-spans/references/span-examples.md
-runtime/.venv/Scripts/python.exe utils/scripts/render_span_examples.py `
   --source skills/mark-memory-spans/references/physics-span-examples.json `
-  --target skills/mark-memory-spans/references/span-examples.md
-runtime/.venv/Scripts/python.exe utils/scripts/render_span_examples.py `
-  --source skills/mark-memory-spans/references/math-span-examples.json `
-  --target skills/mark-memory-spans/references/span-examples.md
-runtime/.venv/Scripts/python.exe utils/scripts/render_span_examples.py `
   --source skills/mark-memory-spans/references/chemistry-span-examples.json `
-  --target skills/mark-memory-spans/references/span-examples.md
-runtime/.venv/Scripts/python.exe utils/scripts/render_span_examples.py `
   --source skills/mark-memory-spans/references/biology-span-examples.json `
-  --target skills/mark-memory-spans/references/span-examples.md
-runtime/.venv/Scripts/python.exe utils/scripts/render_span_examples.py `
   --source skills/mark-memory-spans/references/literature-span-examples.json `
+  --source skills/mark-memory-spans/references/math-span-examples.json `
   --target skills/mark-memory-spans/references/span-examples.md
 ```

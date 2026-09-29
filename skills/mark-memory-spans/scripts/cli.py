@@ -11,6 +11,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "utils" / "scripts"))
 from span_ops import apply_operations, candidate_spans, classical_clauses, classical_spans, marked_text, masked_text, normalize_text, text_sha256, validate_classical_spans, validate_cloze_alignment, validate_cloze_quality, validate_masked_text, validate_spans
+from term_glossary import load_terms, run_terms, snapshot_terms
 from structured_io import read_json, validate_json_schema, write_json
 from timestamp import filename_timestamp, iso_timestamp
 from workflow_state import WorkflowDefinition, WorkflowStateStore
@@ -47,6 +48,18 @@ def log_dir(root: Path, run_id: str) -> Path:
 
 def out_dir(root: Path, run_id: str) -> Path:
     return root / "outputs" / WORKFLOW / "runs" / run_id
+
+
+def glossary_terms(root: Path, run_id: str) -> list[str]:
+    directory = log_dir(root, run_id)
+    packet_path = directory / "generation_packet.json"
+    selection_path = directory / "selection.json"
+    required = (
+        packet_path.is_file() and "glossary_rule" in read_json(packet_path).get("instructions", {})
+    ) or (
+        selection_path.is_file() and read_json(selection_path).get("glossary_required") is True
+    )
+    return run_terms(directory, required=required)
 
 
 def saved_mode(root: Path, run_id: str) -> str:
@@ -89,11 +102,11 @@ def run_id(root: Path) -> str:
             return candidate
 
 
-def write_packet(root: Path, run: str, request: dict, text: str) -> None:
+def write_packet(root: Path, run: str, request: dict, text: str, terms: list[str]) -> None:
     packet = {
         "run_id": run,
         "source": {"text": text, "sha256": text_sha256(text)},
-        "candidate_spans": candidate_spans(text),
+        "candidate_spans": candidate_spans(text, terms=terms),
         "clause_candidates": classical_clauses(text),
         "response_templates": {
             "classical_recitation": {"mode": "classical_recitation", "selected_clause_ids": []},
@@ -107,6 +120,7 @@ def write_packet(root: Path, run: str, request: dict, text: str) -> None:
             "adjacent_allowed": True,
             "mark_format": "「span」",
             "cloze_replacement": "____",
+            "glossary_rule": "术语表中的术语在原文区间内不可从中间切开；是否挖空仍由语义决定。",
         },
     }
     write_json(log_dir(root, run) / "generation_packet.json", packet)
@@ -116,7 +130,7 @@ def build_result(root: Path, run: str, text: str, spans: list[dict], cloze: dict
     if mode not in {"key_points", "classical_recitation"}:
         raise ValueError("未知的挖空模式")
     digest = text_sha256(text)
-    spans = validate_spans(text, spans, source_sha256=digest)
+    spans = validate_spans(text, spans, source_sha256=digest, terms=glossary_terms(root, run))
     remaining = masked_text(text, spans)
     validate_masked_text(text, spans, remaining)
     quality = validate_classical_spans(text, spans) if mode == "classical_recitation" else validate_cloze_quality(text, spans)
@@ -144,13 +158,13 @@ def write_output(root: Path, result: dict, mode: str = "key_points") -> None:
     write_json(directory / "result.json", result)
 
 
-def validate_result_artifact(result: dict, mode: str = "key_points") -> dict:
+def validate_result_artifact(result: dict, mode: str = "key_points", terms: list[str] | None = None) -> dict:
     """Recompute all derived output fields before verify or deliver."""
     text = normalize_text(result["source"]["text"])
     digest = text_sha256(text)
     if result["source"]["sha256"] != digest:
         raise ValueError("产物 source_sha256 与源文本不一致")
-    spans = validate_spans(text, result["spans"], source_sha256=digest)
+    spans = validate_spans(text, result["spans"], source_sha256=digest, terms=terms)
     masked = masked_text(text, spans)
     marked = marked_text(text, spans)
     if result["masked_text"] != masked or result["markdown"] != marked:
@@ -189,7 +203,8 @@ def cmd_start(args: argparse.Namespace) -> int:
     for target in ("validating_request", "normalizing_text", "extracting_candidates", "building_generation_packet"):
         state = advance(root, state, target)
     write_json(log_dir(root, run) / "request.json", request)
-    write_packet(root, run, request, text)
+    terms = snapshot_terms(log_dir(root, run), root / "utils/references/术语表.txt")
+    write_packet(root, run, request, text, terms)
     state = pause(root, state, "paused_agent_selection", "需要 Agent 提交选定的记忆 span", "validating_agent_response")
     print(json.dumps({"status": state["status"], "run_id": run, "generation_packet": str(log_dir(root, run) / "generation_packet.json")}, ensure_ascii=False))
     return 3
@@ -224,7 +239,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
         return 3
     state = advance(root, state, "validating_cloze_quality")
     state = advance(root, state, "validating_cloze_alignment")
-    write_json(log_dir(root, args.run_id) / "selection.json", {"mode": mode})
+    write_json(log_dir(root, args.run_id) / "selection.json", {"mode": mode, "glossary_required": "glossary_rule" in packet.get("instructions", {})})
     write_json(log_dir(root, args.run_id) / "agent-response.json", response)
     write_output(root, result, mode)
     state = advance(root, state, "rendering_outputs")
@@ -242,10 +257,13 @@ def cmd_edit(args: argparse.Namespace) -> int:
     digest = text_sha256(text)
     if request["source_sha256"] != digest:
         raise ValueError("编辑请求的 source_sha256 与规范化文本不一致")
-    spans = validate_spans(text, request["spans"], source_sha256=digest)
+    terms = load_terms(root / "utils/references/术语表.txt")
+    spans = validate_spans(text, request["spans"], source_sha256=digest, terms=terms)
     spans = apply_operations(text, spans, request["operations"])
+    spans = validate_spans(text, spans, source_sha256=digest, terms=terms)
     mode = request.get("mode", "key_points")
     run = run_id(root)
+    snapshot_terms(log_dir(root, run), root / "utils/references/术语表.txt")
     result = build_result(root, run, text, spans, {"pass": True, "main_clause_preserved": True, "overmarking": False, "reason": "编辑后的 span 已通过模式校验"}, mode)
     state = new_state(run)
     store(root, run).create(state)
@@ -257,7 +275,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
         state = advance(root, state, "validating_clause_selection")
     for target in ("validating_cloze_quality", "validating_cloze_alignment"):
         state = advance(root, state, target)
-    write_json(log_dir(root, run) / "selection.json", {"mode": mode})
+    write_json(log_dir(root, run) / "selection.json", {"mode": mode, "glossary_required": True})
     write_output(root, result, mode)
     for target in ("rendering_outputs", "verifying_outputs", "completed"):
         state = advance(root, state, target)
@@ -273,7 +291,7 @@ def cmd_deliver(args: argparse.Namespace) -> int:
     result = read_json(out_dir(root, args.run_id) / "result.json")
     validate_json_schema(result, OUT_SCHEMA)
     mode = saved_mode(root, args.run_id)
-    validate_result_artifact(result, mode)
+    validate_result_artifact(result, mode, glossary_terms(root, args.run_id))
     result_path = validate_published_markdown(root, result, mode)
     print(result_path.read_text(encoding="utf-8"), end="")
     return 0
@@ -303,7 +321,7 @@ def main() -> int:
         result = read_json(out_dir(root, args.run_id) / "result.json")
         validate_json_schema(result, OUT_SCHEMA)
         mode = saved_mode(root, args.run_id)
-        validate_result_artifact(result, mode)
+        validate_result_artifact(result, mode, glossary_terms(root, args.run_id))
         validate_published_markdown(root, result, mode)
         print(json.dumps({"status": "verified", "run_id": args.run_id}, ensure_ascii=False)); return 0
     except Exception as exc:

@@ -8,6 +8,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+try:
+    from .term_glossary import matches as glossary_matches, validate_boundaries
+except ImportError:  # CLI scripts import this module from utils/scripts on sys.path.
+    from term_glossary import matches as glossary_matches, validate_boundaries
+
 
 def normalize_text(text: str) -> str:
     """Canonicalize imported plain text before hashing or slicing."""
@@ -61,7 +66,7 @@ def math_expression_ranges(text: str) -> list[tuple[int, int]]:
     return ranges
 
 
-def candidate_spans(text: str, *, max_candidates: int = 128, per_paragraph: int = 32) -> list[dict[str, Any]]:
+def candidate_spans(text: str, *, max_candidates: int = 128, per_paragraph: int = 32, terms: list[str] | None = None) -> list[dict[str, Any]]:
     """Offer bounded, whole-text candidate ranges without choosing answers.
 
     Complete mathematical expressions, wrapped titles, quoted phrases, and
@@ -71,11 +76,13 @@ def candidate_spans(text: str, *, max_candidates: int = 128, per_paragraph: int 
     if max_candidates < 1 or per_paragraph < 1:
         raise ValueError("候选上限必须为正整数")
     canonical = normalize_text(text)
+    protected = glossary_matches(canonical, terms or [])
     formula_ranges = math_expression_ranges(canonical)
     paragraph_candidates: list[list[tuple[int, int]]] = []
     for paragraph in re.finditer(r"[^\n]+", canonical):
         start, end = paragraph.span()
         prioritized: list[tuple[int, int]] = []
+        prioritized.extend((item["start"], item["end"]) for item in protected if start <= item["start"] and item["end"] <= end)
         prioritized.extend((left, right) for left, right in formula_ranges if start <= left and right <= end)
         for pattern in (
             r"《([^《》\n]+)》",
@@ -85,22 +92,41 @@ def candidate_spans(text: str, *, max_candidates: int = 128, per_paragraph: int 
         ):
             for match in re.finditer(pattern, canonical[start:end]):
                 prioritized.append((start + match.start(1), start + match.end(1)))
-        prioritized.sort()
+        term_ranges = {(item["start"], item["end"]) for item in protected}
+        prioritized.sort(key=lambda bounds: (0 if bounds in term_ranges else 1, bounds[0], bounds[1]))
         accepted: list[tuple[int, int]] = []
         for left, right in prioritized:
+            try:
+                validate_boundaries(left, right, protected)
+            except ValueError:
+                continue
             if not any(left < other_right and right > other_left for other_left, other_right in accepted):
                 accepted.append((left, right))
         for match in re.finditer(r"[\u4e00-\u9fff]{2,8}|[A-Za-z][A-Za-z'-]*|\d+(?:\.\d+)?", canonical[start:end]):
             left, right = start + match.start(), start + match.end()
+            try:
+                validate_boundaries(left, right, protected)
+            except ValueError:
+                continue
             if not any(left < other_right and right > other_left for other_left, other_right in accepted):
                 accepted.append((left, right))
         paragraph_candidates.append(accepted[:per_paragraph])
-    # Give later paragraphs a chance before filling the budget with early ones.
-    chosen: list[tuple[int, int]] = []
+    # Keep complete glossary terms ahead of the bounded general hints.
+    chosen: list[tuple[int, int]] = [(item["start"], item["end"]) for item in protected[:max_candidates]]
+    if len(chosen) == max_candidates:
+        return [
+            {"start": left, "end": right, "text": canonical[left:right], "role": "待判断"}
+            for left, right in chosen
+        ]
+    selected = set(chosen)
+    # Give later paragraphs a chance before filling the remaining budget.
     for index in range(per_paragraph):
         for group in paragraph_candidates:
             if index < len(group):
+                if group[index] in selected:
+                    continue
                 chosen.append(group[index])
+                selected.add(group[index])
                 if len(chosen) == max_candidates:
                     return [
                         {"start": left, "end": right, "text": canonical[left:right], "role": "待判断"}
@@ -112,9 +138,10 @@ def candidate_spans(text: str, *, max_candidates: int = 128, per_paragraph: int 
     ]
 
 
-def validate_spans(text: str, spans: list[dict[str, Any]], *, source_sha256: str | None = None) -> list[dict[str, Any]]:
+def validate_spans(text: str, spans: list[dict[str, Any]], *, source_sha256: str | None = None, terms: list[str] | None = None) -> list[dict[str, Any]]:
     canonical = normalize_text(text)
     digest = text_sha256(canonical)
+    protected = glossary_matches(canonical, terms or [])
     if source_sha256 and source_sha256 != digest:
         raise ValueError("source_sha256 与规范化后的源文本不一致")
     normalized: list[dict[str, Any]] = []
@@ -124,6 +151,7 @@ def validate_spans(text: str, spans: list[dict[str, Any]], *, source_sha256: str
         start, end = raw.get("start"), raw.get("end")
         if not isinstance(start, int) or not isinstance(end, int) or start < 0 or end > len(canonical) or start >= end:
             raise ValueError(f"span-{index} 的区间无效")
+        validate_boundaries(start, end, protected)
         if start < previous_end:
             raise ValueError("span 不允许重叠")
         span_id = str(raw.get("id") or f"span-{index}")
