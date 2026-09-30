@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "wordId", "lemma", "aliases", "familyId", "pronunciations", "inflections", "derivatives", "senses", "relationships", "revision", "createdAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": {"enum": ["1.0", "1.1", "1.2", "1.3", "1.4"]},
+    "wordId": {"type": "string", "pattern": "^w_[0-9a-f]{20}$"},
+    "lemma": {"type": "string", "minLength": 1},
+    "aliases": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "familyId": {"type": "string", "minLength": 1},
+    "pronunciations": {"type": "array", "items": {"$ref": "#/$defs/pronunciation"}},
+    "inflections": {"type": "array", "items": {"$ref": "#/$defs/form"}},
+    "derivatives": {"type": "array", "items": {"$ref": "#/$defs/derivative"}},
+    "pendingRelations": {"type": "array", "items": {"$ref": "#/$defs/pendingRelation"}},
+    "senses": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sense"}},
+    "relationships": {"type": "array", "items": {"$ref": "#/$defs/relationship"}},
+    "revision": {"type": "integer", "minimum": 1},
+    "createdAt": {"$ref": "#/$defs/timestamp"},
+    "updatedAt": {"$ref": "#/$defs/timestamp"}
+  },
+  "allOf": [{"if": {"properties": {"schemaVersion": {"enum": ["1.1", "1.2", "1.3", "1.4"]}}},
+             "then": {"required": ["pendingRelations"]}},
+            {"if": {"properties": {"schemaVersion": {"enum": ["1.2", "1.3", "1.4"]}}},
+             "then": {"properties": {"relationships": {"items": {"required": ["linkStatus"]}}}}},
+            {"if": {"properties": {"schemaVersion": {"enum": ["1.3", "1.4"]}}},
+             "then": {"properties": {"senses": {"items": {"properties": {
+               "examples": {"items": {"required": ["translationZh", "emphasis"]}},
+               "collocations": {"items": {"required": ["translationZh"], "not": {"required": ["emphasis"]}}},
+               "phrases": {"items": {"required": ["translationZh"], "not": {"required": ["emphasis"]}}}
+             }}}}}}],
+  "$defs": {
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"},
+    "sourceRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["site", "url", "locator", "collectedAt", "summary"],
+      "properties": {
+        "site": {"enum": ["cambridge", "oxford", "longman", "thesaurus"]},
+        "url": {"type": "string", "pattern": "^https://"},
+        "locator": {"type": "string", "minLength": 1},
+        "collectedAt": {"$ref": "#/$defs/timestamp"},
+        "summary": {"type": "string", "maxLength": 160}
+      }
+    },
+    "item": {
+      "type": "object", "additionalProperties": false,
+      "required": ["itemId", "text", "generationMethod", "verificationStatus", "sourceRefs"],
+      "properties": {
+        "itemId": {"type": "string", "pattern": "^i_[0-9a-f]{20}$"},
+        "text": {"type": "string", "minLength": 1},
+        "generationMethod": {"enum": ["source_supported", "ai_generated"]},
+        "verificationStatus": {"enum": ["pending", "automatic_passed", "agent_passed", "human_passed", "rejected"]},
+        "verificationRef": {"$ref": "#/$defs/verificationRef"},
+        "sourceRefs": {"type": "array", "items": {"$ref": "#/$defs/sourceRef"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1, "multipleOf": 0.01},
+        "translationZh": {"$ref": "#/$defs/translationItem"},
+        "emphasis": {"$ref": "#/$defs/emphasis"}
+      },
+      "allOf": [
+        {"if": {"properties": {"generationMethod": {"const": "ai_generated"}}}, "then": {"required": ["confidence"]}},
+        {"if": {"properties": {"generationMethod": {"const": "source_supported"}}}, "then": {"properties": {"sourceRefs": {"minItems": 1}}, "not": {"required": ["confidence"]}}},
+        {"if": {"properties": {"verificationStatus": {"const": "agent_passed"}}}, "then": {"required": ["verificationRef"]}}
+      ]
+    },
+    "translationItem": {"type": "object", "additionalProperties": false,
+      "required": ["itemId", "text", "generationMethod", "verificationStatus", "sourceRefs"],
+      "properties": {"itemId": {"type": "string", "pattern": "^i_[0-9a-f]{20}$"},
+        "text": {"type": "string", "minLength": 1},
+        "generationMethod": {"enum": ["source_supported", "ai_generated"]},
+        "verificationStatus": {"enum": ["pending", "automatic_passed", "agent_passed", "human_passed", "rejected"]},
+        "verificationRef": {"$ref": "#/$defs/verificationRef"},
+        "sourceRefs": {"type": "array", "items": {"$ref": "#/$defs/sourceRef"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1, "multipleOf": 0.01}},
+      "allOf": [
+        {"if": {"properties": {"generationMethod": {"const": "ai_generated"}}}, "then": {"required": ["confidence"]}},
+        {"if": {"properties": {"generationMethod": {"const": "source_supported"}}},
+         "then": {"properties": {"sourceRefs": {"minItems": 1}}, "not": {"required": ["confidence"]}}},
+        {"if": {"properties": {"verificationStatus": {"const": "agent_passed"}}}, "then": {"required": ["verificationRef"]}}
+      ]},
+    "verificationRef": {"type": "object", "additionalProperties": false,
+      "required": ["runId", "decisionId", "evidenceDigest", "candidateDigest", "reviewedAt"],
+      "properties": {"runId": {"type": "string", "pattern": "^[0-9]{8}T[0-9]{6}(?:_[0-9]+)?$"},
+        "decisionId": {"type": "string", "pattern": "^cr_[0-9a-f]{20}$"},
+        "evidenceDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "candidateDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "reviewedAt": {"$ref": "#/$defs/timestamp"}}},
+    "emphasis": {"type": "object", "additionalProperties": false, "required": ["en", "zh"],
+      "properties": {"en": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/span"}},
+        "zh": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/span"}}}},
+    "span": {"type": "object", "additionalProperties": false, "required": ["start", "end"],
+      "properties": {"start": {"type": "integer", "minimum": 0}, "end": {"type": "integer", "minimum": 1}}},
+    "pronunciation": {"type": "object", "required": ["pronunciationId", "ipa", "variety", "sourceRefs"], "properties": {"pronunciationId": {"type": "string"}, "ipa": {"$ref": "#/$defs/item"}, "variety": {"enum": ["uk", "us", "other"]}, "partOfSpeech": {"type": "string"}, "audioUrl": {"type": "string"}, "sourceRefs": {"type": "array", "items": {"$ref": "#/$defs/sourceRef"}}}},
+    "form": {"type": "object", "required": ["formId", "form", "kind", "sourceRefs"], "properties": {"formId": {"type": "string"}, "form": {"$ref": "#/$defs/item"}, "kind": {"type": "string"}, "partOfSpeech": {"type": "string"}, "irregular": {"type": "boolean"}, "sourceRefs": {"type": "array", "items": {"$ref": "#/$defs/sourceRef"}}}},
+    "derivative": {"type": "object", "required": ["derivativeId", "word", "status"], "properties": {"derivativeId": {"type": "string"}, "word": {"type": "string"}, "targetWordId": {"type": "string"}, "status": {"enum": ["candidate", "linked"]}, "verificationStatus": {"enum": ["agent_reviewed", "human_passed"]}, "sourceRefs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceRef"}}},
+      "allOf": [{"if": {"properties": {"status": {"const": "linked"}}}, "then": {"required": ["targetWordId"]}},
+                {"if": {"properties": {"status": {"const": "candidate"},
+                                       "verificationStatus": {"const": "agent_reviewed"}},
+                        "required": ["status", "verificationStatus"]},
+                 "then": {"required": ["sourceRefs"]}}]},
+    "pendingRelation": {"type": "object", "additionalProperties": false,
+      "required": ["candidateId", "targetLemma", "sourceSenseId", "proposedType", "status", "sourceRefs"],
+      "properties": {"candidateId": {"type": "string", "pattern": "^c_[0-9a-f]{20}$"},
+        "targetLemma": {"type": "string", "minLength": 1},
+        "sourceSenseId": {"type": "string", "pattern": "^s_[0-9a-f]{20}$"},
+        "proposedType": {"enum": ["synonym", "near_synonym", "synonym_or_near_synonym", "antonym"]},
+        "status": {"enum": ["pending_collection", "pending_relation_review"]},
+        "sourceRefs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sourceRef"}}
+      }
+    },
+    "sense": {
+      "type": "object", "additionalProperties": false,
+      "required": ["senseId", "partOfSpeech", "sourceOrders", "definitionZh", "definitionEn", "grammarTags", "registerTags", "examples", "collocations", "phrases"],
+      "properties": {
+        "senseId": {"type": "string", "pattern": "^s_[0-9a-f]{20}$"},
+        "partOfSpeech": {"type": "string", "minLength": 1},
+        "sourceOrders": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+          "required": ["site", "ordinal"], "properties": {"site": {"enum": ["cambridge", "oxford", "longman", "thesaurus"]},
+          "ordinal": {"type": "integer", "minimum": 0}}}},
+        "definitionZh": {"$ref": "#/$defs/item"}, "definitionEn": {"$ref": "#/$defs/item"},
+        "grammarTags": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+        "registerTags": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+        "examples": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/item"}},
+        "collocations": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+        "phrases": {"type": "array", "items": {"$ref": "#/$defs/item"}}
+      }
+    },
+    "relationship": {
+      "type": "object", "additionalProperties": false,
+      "required": ["relationshipId", "type", "verificationStatus", "sourceRefs"],
+      "properties": {
+        "relationshipId": {"type": "string", "minLength": 1},
+        "type": {"enum": ["synonym", "near_synonym", "antonym", "spelling_similar", "family"]},
+        "targetWordId": {"type": "string", "pattern": "^w_[0-9a-f]{20}$"}, "targetLemma": {"type": "string"},
+        "targetSenseHint": {"type": "string"},
+        "linkStatus": {"enum": ["lemma_only", "linked"]}, "sourceSenseId": {"type": "string"},
+        "targetSenseId": {"type": "string"}, "intraList": {"type": "boolean"},
+        "verificationStatus": {"enum": ["pending", "automatic_passed", "agent_reviewed", "human_passed"]},
+        "sourceRefs": {"type": "array", "items": {"$ref": "#/$defs/sourceRef"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"linkStatus": {"const": "lemma_only"}}, "required": ["linkStatus"]},
+         "then": {"required": ["targetLemma", "targetSenseHint", "sourceSenseId"],
+                  "properties": {"targetLemma": {"minLength": 1}, "targetSenseHint": {"minLength": 1},
+                                 "sourceRefs": {"minItems": 1},
+                                 "verificationStatus": {"const": "agent_reviewed"}},
+                  "not": {"anyOf": [{"required": ["targetWordId"]}, {"required": ["targetSenseId"]}]}},
+         "else": {"required": ["targetWordId"]}},
+        {"if": {"properties": {"linkStatus": {"const": "linked"},
+                               "type": {"enum": ["synonym", "near_synonym", "antonym"]}},
+                "required": ["linkStatus", "type"]},
+         "then": {"required": ["sourceSenseId", "targetSenseId"]}}
+      ]
+    }
+  }
+}

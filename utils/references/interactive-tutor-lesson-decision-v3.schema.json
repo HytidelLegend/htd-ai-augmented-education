@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interactive-tutor-lesson-decision-v3.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "unit_id",
+    "bloom_level",
+    "available_evidence_ids",
+    "teaching_points",
+    "question_plans",
+    "counterfactual_check",
+    "fact_check_status",
+    "fact_check_refs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "3.0"
+    },
+    "unit_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bloom_level": {
+      "enum": [
+        "remember",
+        "understand",
+        "apply",
+        "analyze",
+        "evaluate",
+        "create"
+      ]
+    },
+    "available_evidence_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "teaching_points": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": [
+          "text",
+          "evidence_ids",
+          "external_explanation"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "external_explanation": {
+            "type": "boolean"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "external_explanation": {
+                  "const": false
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "evidence_ids": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ],
+        "additionalProperties": false
+      }
+    },
+    "question_plans": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": [
+          "prompt",
+          "expected_points",
+          "hint",
+          "evidence_ids"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "expected_points": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "hint": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "evidence_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "counterfactual_check": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fact_check_status": {
+      "enum": [
+        "not_required",
+        "pending",
+        "completed"
+      ]
+    },
+    "fact_check_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

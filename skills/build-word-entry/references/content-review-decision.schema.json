@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["evidenceDigest", "candidateDigest", "approvedSenseIds", "deferredItemIds"],
+  "properties": {
+    "evidenceDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "approvedSenseIds": {"type": "array", "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^s_[0-9a-f]{20}$"}},
+    "deferredItemIds": {"type": "array", "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^i_[0-9a-f]{20}$"}}
+  }
+}

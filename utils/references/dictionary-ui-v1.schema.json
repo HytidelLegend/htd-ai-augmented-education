@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updatedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
+    },
+    "activeProjectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "activeStageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tabs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tabId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "graph",
+              "word",
+              "favorites",
+              "settings",
+              "candidate"
+            ]
+          },
+          "wordId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lemma": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pinned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tabId",
+          "kind",
+          "wordId",
+          "lemma",
+          "pinned"
+        ]
+      }
+    },
+    "activeTabId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "split": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "leftWidthPercent": {
+          "type": "number",
+          "minimum": 25,
+          "maximum": 75
+        }
+      },
+      "required": [
+        "enabled",
+        "leftWidthPercent"
+      ]
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "zoomPercent": {
+          "type": "integer",
+          "minimum": 25,
+          "maximum": 400
+        },
+        "positions": {
+          "type": "object",
+          "patternProperties": {
+            "^(?:w_|candidate:)[0-9a-f]{20}$": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "visibleRelations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "family": {
+              "type": "boolean"
+            },
+            "synonym": {
+              "type": "boolean"
+            },
+            "near_synonym": {
+              "type": "boolean"
+            },
+            "antonym": {
+              "type": "boolean"
+            },
+            "spelling_similar": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "family",
+            "synonym",
+            "near_synonym",
+            "antonym",
+            "spelling_similar"
+          ]
+        }
+      },
+      "required": [
+        "zoomPercent",
+        "positions",
+        "visibleRelations"
+      ]
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "revision",
+    "updatedAt",
+    "activeProjectId",
+    "activeStageId",
+    "tabs",
+    "activeTabId",
+    "split",
+    "graph"
+  ]
+}

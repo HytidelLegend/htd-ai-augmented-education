@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interactive-tutor-review-v2.schema.json",
+  "type": "object",
+  "required": [
+    "lesson_id",
+    "scores",
+    "feedback",
+    "next_action"
+  ],
+  "properties": {
+    "lesson_id": {
+      "type": "string"
+    },
+    "scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "question_index",
+          "score",
+          "feedback"
+        ],
+        "properties": {
+          "question_index": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "feedback": {
+            "type": "string",
+            "minLength": 1
+          },
+          "socratic_hint": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "feedback": {
+      "type": "string",
+      "minLength": 1
+    },
+    "difficulty_rating": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "maximum": 5
+    },
+    "next_action": {
+      "enum": [
+        "next_lesson",
+        "retry",
+        "pause",
+        "complete"
+      ]
+    },
+    "off_topic_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

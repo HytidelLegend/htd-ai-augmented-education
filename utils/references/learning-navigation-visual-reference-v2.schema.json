@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "learning-navigation-visual-reference-v2.schema.json",
+  "type": "object",
+  "required": ["figure_id", "source_id", "source_path", "section_candidate_id", "parent_heading_chain", "heading_text", "heading_occurrence", "image_index_in_section", "source_line_hint", "reference_kind", "reference_hash", "alt_text", "caption_hint", "purpose", "placement_hint", "locator_status"],
+  "properties": {
+    "figure_id": {"type": "string", "pattern": "^FIG-[0-9a-f]{16}$"},
+    "source_id": {"type": "string"}, "source_path": {"type": "string"},
+    "section_candidate_id": {"type": "string", "minLength": 1},
+    "parent_heading_chain": {"type": "array", "items": {"type": "string"}},
+    "heading_text": {"type": "string"}, "heading_occurrence": {"type": "integer", "minimum": 1},
+    "image_index_in_section": {"type": "integer", "minimum": 1}, "source_line_hint": {"type": "integer", "minimum": 1},
+    "reference_kind": {"enum": ["markdown_inline", "markdown_reference", "html_img", "obsidian_embed"]},
+    "reference_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "alt_text": {"type": "string"}, "caption_hint": {"type": "string"},
+    "purpose": {"type": "string", "minLength": 1}, "placement_hint": {"type": "string", "minLength": 1},
+    "locator_status": {"enum": ["valid", "needs_review"]}
+  },
+  "additionalProperties": false
+}

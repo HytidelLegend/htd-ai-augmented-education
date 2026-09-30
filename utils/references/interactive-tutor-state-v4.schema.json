@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interactive-tutor-state-v3.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workflow",
+    "run_id",
+    "status",
+    "current_stage",
+    "resume_stage",
+    "current_object_id",
+    "current_batch_id",
+    "completed_steps",
+    "pending_decisions",
+    "error",
+    "created_at",
+    "updated_at",
+    "last_heartbeat_at",
+    "event_sequence",
+    "input_mode",
+    "interaction_mode",
+    "units",
+    "current_unit_index",
+    "completed_unit_ids",
+    "included_recommended_unit_ids",
+    "skipped_recommended_unit_ids",
+    "source_hashes",
+    "navigation_bundle",
+    "detected_materials",
+    "student_profile_path",
+    "student_profile_sha256",
+    "layout_version",
+    "lesson_files"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "4.0"
+    },
+    "workflow": {
+      "const": "beta-interactive-tutor"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "initialized",
+        "workspace_layout_ready",
+        "project_templates_checked",
+        "input_mode_detected",
+        "input_prepared",
+        "navigation_bundle_validated",
+        "student_profile_loaded",
+        "glossary_snapshot_ready",
+        "learning_queue_ready",
+        "unit_selected",
+        "recommended_unit_decision_required",
+        "evidence_bundle_ready",
+        "lesson_decision_required",
+        "lesson_rendered",
+        "awaiting_answer",
+        "answer_ready",
+        "review_decision_required",
+        "review_applied",
+        "completed",
+        "paused_multiple_materials_requires_navigation",
+        "paused_semantic_decision",
+        "paused_navigation_inconsistent",
+        "paused_source_changed",
+        "paused_locator_invalid",
+        "paused_profile_changed",
+        "paused_error"
+      ]
+    },
+    "current_stage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resume_stage": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "current_object_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "current_batch_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "completed_steps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pending_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "last_heartbeat_at": {
+      "type": "string"
+    },
+    "event_sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "input_mode": {
+      "enum": [
+        null,
+        "direct_material",
+        "existing_navigation"
+      ]
+    },
+    "interaction_mode": {
+      "enum": [
+        "file_driven",
+        "chat"
+      ]
+    },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "current_unit_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "completed_unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "included_recommended_unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "skipped_recommended_unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "source_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "navigation_bundle": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "detected_materials": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "student_profile_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "student_profile_sha256": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "layout_version": {
+      "const": "2.0"
+    },
+    "lesson_files": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^lessons/(overview(?:-[0-9]{3,})?|lesson-[0-9]{3,})\\.md$"
+      }
+    }
+  },
+  "additionalProperties": true
+}

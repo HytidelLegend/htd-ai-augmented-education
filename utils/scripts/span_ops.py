@@ -165,6 +165,40 @@ def validate_spans(text: str, spans: list[dict[str, Any]], *, source_sha256: str
     return normalized
 
 
+def validate_inline_spans(text: str, spans: list[dict[str, int]]) -> None:
+    """Validate ordered, non-overlapping Python character offsets in unmodified text."""
+    previous_end = 0
+    if not spans:
+        raise ValueError("加粗区间不能为空")
+    for span in spans:
+        start, end = span.get("start"), span.get("end")
+        if (type(start) is not int or type(end) is not int or
+                start < previous_end or start >= end or end > len(text)):
+            raise ValueError("加粗区间越界、无序或重叠")
+        previous_end = end
+
+
+def markdown_bold_spans(text: str, spans: list[dict[str, int]]) -> str:
+    """Insert Markdown emphasis after checking offsets against the original text."""
+    validate_inline_spans(text, spans)
+    result = []
+    cursor = 0
+    for span in spans:
+        result.extend((text[cursor:span["start"]], "**", text[span["start"]:span["end"]], "**"))
+        cursor = span["end"]
+    result.append(text[cursor:])
+    return "".join(result)
+
+
+def whole_word_spans(text: str, words: list[str]) -> list[dict[str, int]]:
+    """Find complete occurrences of supplied forms without matching inside derivatives."""
+    forms = sorted({word for word in words if word}, key=len, reverse=True)
+    if not forms:
+        return []
+    pattern = re.compile(r"(?<![\w])(?:" + "|".join(re.escape(word) for word in forms) + r")(?![\w])", re.I)
+    return [{"start": match.start(), "end": match.end()} for match in pattern.finditer(text)]
+
+
 def apply_operations(text: str, spans: list[dict[str, Any]], operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     current = [dict(item) for item in spans]
     for operation in operations:

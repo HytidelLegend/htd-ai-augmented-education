@@ -14,7 +14,7 @@ runtime/.venv/Scripts/python.exe -m pip install -r runtime/.venv/requirements.tx
 runtime/.venv/Scripts/python.exe --version
 ```
 
-依赖包括 `jsonschema`、`pytest` 和 `PyYAML`，分别用于 Schema 校验、测试和敏感信息策略解析。使用项目 Skills 时，优先调用 `runtime/.venv/Scripts/python.exe`。
+依赖包括 `jsonschema`、`pytest`、`PyYAML` 和 `playwright`，分别用于 Schema 校验、测试、敏感信息策略解析和可见浏览器采集。`build-word-entry` 使用本机安装的 Chrome，不保存浏览器会话到正式产物。使用项目 Skills 时，优先调用 `runtime/.venv/Scripts/python.exe`。
 
 ## Node.js 环境
 

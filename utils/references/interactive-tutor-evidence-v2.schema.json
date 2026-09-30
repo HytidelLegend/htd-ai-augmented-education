@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interactive-tutor-evidence-v2.schema.json",
+  "type": "object",
+  "required": ["evidence_id", "evidence_kind", "source_path", "source_sha256", "locator", "text"],
+  "properties": {
+    "evidence_id": {"type": "string", "minLength": 1},
+    "evidence_kind": {"enum": ["source_excerpt", "navigation_context"]},
+    "source_path": {"type": ["string", "null"]},
+    "source_sha256": {"type": ["string", "null"]},
+    "locator": {"type": "object"},
+    "text": {"type": "string"}
+  },
+  "additionalProperties": false
+}

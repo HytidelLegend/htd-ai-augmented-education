@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false, "required": ["links"],
+  "properties": {
+    "links": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["sourceWord", "relationshipId", "action"],
+      "properties": {
+        "sourceWord": {"type": "string", "minLength": 1},
+        "relationshipId": {"type": "string", "pattern": "^r_[0-9a-f]{20}$"},
+        "action": {"enum": ["link", "defer"]},
+        "targetSenseId": {"type": "string", "pattern": "^s_[0-9a-f]{20}$"}
+      },
+      "allOf": [{"if": {"properties": {"action": {"const": "link"}}},
+        "then": {"required": ["targetSenseId"]},
+        "else": {"not": {"required": ["targetSenseId"]}}}]
+    }}
+  }
+}

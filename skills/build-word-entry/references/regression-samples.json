@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "reviewGate": "五类样本逐项通过义项对齐、例句适切性、来源定位和引用完整性检查；有一项不能确认时暂停质量复核。",
+  "samples": [
+    {
+      "id": "polysemy-bank",
+      "words": [
+        "bank"
+      ],
+      "focus": "多义词",
+      "expected": [
+        "金融机构与河岸不得合并为同一义项",
+        "每个保留义项的例句必须与对应义项一致",
+        "中文释义与英文释义必须指向相同词义"
+      ]
+    },
+    {
+      "id": "pos-pronunciation-record",
+      "words": [
+        "record"
+      ],
+      "focus": "名动异读",
+      "expected": [
+        "名词与动词读音按词性分别记录",
+        "音标及音频 URL 保留各自来源定位",
+        "缺少某一读音时标记待补"
+      ]
+    },
+    {
+      "id": "uncountable-information",
+      "words": [
+        "information"
+      ],
+      "focus": "不可数名词",
+      "expected": [
+        "不可数性标签须有来源或明确待核验",
+        "不凭规则自动生成复数",
+        "例句不得把不可数义误写为可数义"
+      ]
+    },
+    {
+      "id": "irregular-go",
+      "words": [
+        "go"
+      ],
+      "focus": "不规则变化",
+      "expected": [
+        "过去式 went 与过去分词 gone 分别记录",
+        "词形保留原词条及词性引用",
+        "词形与派生词分开记录"
+      ]
+    },
+    {
+      "id": "near-synonym-big-large",
+      "words": [
+        "big",
+        "large"
+      ],
+      "focus": "近义词边界",
+      "expected": [
+        "近义关系仅在有证据的义项对上建立",
+        "不得把全部义项判为可互换",
+        "待核验候选不作为确定关系发布"
+      ]
+    },
+    {
+      "id": "adjective-happy-relations",
+      "words": [
+        "happy"
+      ],
+      "focus": "形容词词形与义项级关联候选",
+      "expected": [
+        "happier 和 happiest 作为有来源的比较级与最高级写入 inflections",
+        "词族候选须确认直接派生后才进入 derivatives",
+        "逐项判断同义、近义、反义候选并保留来源义项和证据",
+        "已确认且目标词条未建的关系以 targetLemma 和 lemma_only 进入 relationships；无法确认的候选留在 pendingRelations"
+      ]
+    },
+    {
+      "id": "bilingual-usage-happy",
+      "words": [
+        "happy"
+      ],
+      "focus": "1.3 双语例句、词形自动核验与旧词条迁移",
+      "expected": [
+        "例句、搭配、短语各自保存中文翻译和来源或 AI 生成状态",
+        "例句英文目标词与中文对应词区间有效，Markdown 加粗后原文可还原",
+        "有本次页面证据且通过词性、音标或拼写检查的读音与词形标记 automatic_passed",
+        "未补译的旧内容暂停质量复核，旧版词条仍可验证"
+      ]
+    },
+    {
+      "id": "content-review-v14",
+      "words": ["happy"],
+      "focus": "1.4 内容审查、暂缓和历史运行",
+      "expected": [
+        "内容审查模板按义项分组，逐项列出中英文释义、用法与译文",
+        "Agent 已确认的来源支持和 AI 生成内容标记 agent_passed，AI 生成方式与置信度保留",
+        "暂缓内容仍为 pending，逐项列入 contentGaps",
+        "审查决定、候选摘要、收据时间与发布内容一致，不匹配时 verify 失败",
+        "同词条再次修订后，旧运行仍能按归档结果验证"
+      ]
+    }
+  ]
+}

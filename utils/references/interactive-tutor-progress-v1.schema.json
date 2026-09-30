@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interactive-tutor-progress-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "topic", "updated_at", "units", "coverage_gaps", "deferred_items"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "topic": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "units": {"type": "array", "items": {"type": "object", "required": ["unit_id", "title", "sequence", "importance", "difficulty", "status", "mastery", "bloom_level"], "properties": {"unit_id": {"type": "string"}, "title": {"type": "string"}, "sequence": {"type": "integer"}, "importance": {"enum": ["required", "recommended", "optional", "critical_reading"]}, "difficulty": {"type": "string"}, "status": {"enum": ["pending", "awaiting_answer", "retry", "completed", "skipped"]}, "mastery": {"type": ["number", "null"], "minimum": 0, "maximum": 1}, "bloom_level": {"type": ["string", "null"]}}, "additionalProperties": false}},
+    "coverage_gaps": {"type": "array", "items": {"type": "object"}},
+    "deferred_items": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

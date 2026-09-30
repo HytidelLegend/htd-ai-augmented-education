@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "learning-navigation-source-fragment-v2.schema.json",
+  "type": "object",
+  "required": ["schema_version", "source", "learning_points", "relationship_records"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "source": {"type": "object", "required": ["source_id", "path", "sha256"], "properties": {"source_id": {"type": "string"}, "path": {"type": "string"}, "sha256": {"type": "string"}}, "additionalProperties": false},
+    "learning_points": {"type": "array", "items": {"type": "object"}},
+    "relationship_records": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

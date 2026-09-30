@@ -1,0 +1,37 @@
+schemaVersion: '1.0'
+ui:
+  background: '#F4F1E9'
+  surface: '#FFFEFA'
+  surfaceRaised: '#EAE6DA'
+  text: '#20302C'
+  mutedText: '#61706B'
+  border: '#D4D8CE'
+  hover: '#E5EEE6'
+  selected: '#D7EAD9'
+  disabled: '#A8B0A8'
+  error: '#B43E3E'
+  success: '#22744D'
+learning:
+  unfamiliar: '#F5D7D4'
+  seen: '#D7E9F5'
+  familiar: '#D8EEDB'
+  outsideStage: '#D9DDDB'
+graph:
+  family: '#8B5CF6'
+  relations:
+    synonym: '#16A34A'
+    near_synonym: '#0EA5E9'
+    antonym: '#EF4444'
+    spelling_similar: '#F59E0B'
+  physics:
+    springStrength: 0.08
+    repulsionStrength: 900
+    damping: 0.82
+    restLength: 150
+controls:
+  activeText: '#173A2B'
+  inactiveText: '#68746E'
+  focus: '#1B6C53'
+  sliderTrack: '#A9BEB1'
+favorites:
+  star: '#F2B524'

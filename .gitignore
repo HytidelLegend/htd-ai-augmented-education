@@ -27,5 +27,8 @@ tests/
 !/skills/en-writing-master/tools/README.md
 
 skills/make-tape-collage/
+/skills/beta-*/
 
 examples/
+
+applications/交互式学习/

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interactive-tutor-assessment-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "status", "current_level", "learning_goal", "known_through", "unknown_from", "max_questions", "answers", "pending_question"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["question_required", "awaiting_answer", "completed"]},
+    "current_level": {"type": "string", "minLength": 1},
+    "learning_goal": {"type": "string", "minLength": 1},
+    "known_through": {"type": "integer", "minimum": -1},
+    "unknown_from": {"type": "integer", "minimum": 0},
+    "max_questions": {"type": "integer", "minimum": 1, "maximum": 12},
+    "answers": {"type": "array", "items": {"type": "object", "required": ["unit_id", "index", "choice", "correct"], "properties": {"unit_id": {"type": "string"}, "index": {"type": "integer"}, "choice": {"type": ["integer", "null"]}, "correct": {"type": "boolean"}}, "additionalProperties": false}},
+    "pending_question": {"type": ["object", "null"]}
+  },
+  "additionalProperties": false
+}

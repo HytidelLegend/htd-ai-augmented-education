@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator
+
+
+def json_digest(value: Any) -> str:
+    """Hash a JSON value independently of object key order and pretty printing."""
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def structured_error_receipt(exc: Exception, *, failure_run_id: str = "") -> dict[str, str]:

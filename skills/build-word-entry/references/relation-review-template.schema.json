@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false, "required": ["relations", "derivatives"],
+  "properties": {
+    "relations": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["candidateId", "source", "groupIndex", "targetLemma", "sourceGloss", "sourcePartOfSpeech", "sourceHint", "fragment"],
+      "properties": {
+        "candidateId": {"type": "string", "pattern": "^rc_[0-9a-f]{20}$"},
+        "source": {"type": "integer", "minimum": 0}, "groupIndex": {"type": "integer", "minimum": 0},
+        "targetLemma": {"type": "string", "minLength": 1}, "sourceGloss": {"type": "string"},
+        "sourcePartOfSpeech": {"type": "string"},
+        "sourceHint": {"enum": ["synonym_or_near_synonym", "antonym"]},
+        "fragment": {"type": "integer", "minimum": 0}
+      }
+    }},
+    "derivatives": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["candidateId", "source", "targetLemma", "sourceHint", "fragment"],
+      "properties": {
+        "candidateId": {"type": "string", "pattern": "^dc_[0-9a-f]{20}$"},
+        "source": {"type": "integer", "minimum": 0}, "targetLemma": {"type": "string", "minLength": 1},
+        "sourceHint": {"type": "string"}, "fragment": {"type": "integer", "minimum": 0}
+      }
+    }}
+  }
+}

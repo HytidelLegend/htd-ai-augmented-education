@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["evidenceDigest", "candidateDigest", "senses"],
+  "properties": {
+    "evidenceDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "senses": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false,
+      "required": ["senseId", "items"],
+      "properties": {"senseId": {"type": "string", "pattern": "^s_[0-9a-f]{20}$"},
+        "items": {"type": "array", "minItems": 3, "items": {"type": "object", "additionalProperties": false,
+      "required": ["senseId", "itemId", "field", "text", "generationMethod", "confidence", "sourceRefs"],
+      "properties": {"senseId": {"type": "string", "pattern": "^s_[0-9a-f]{20}$"},
+        "itemId": {"type": "string", "pattern": "^i_[0-9a-f]{20}$"},
+        "field": {"enum": ["definitionZh", "definitionEn", "examples", "examples.translationZh",
+          "collocations", "collocations.translationZh", "phrases", "phrases.translationZh"]},
+        "text": {"type": "string", "minLength": 1},
+        "generationMethod": {"enum": ["source_supported", "ai_generated"]},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "sourceRefs": {"type": "array", "items": {"type": "object"}}}}}}}}
+  }
+}

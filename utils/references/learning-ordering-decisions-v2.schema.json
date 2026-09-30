@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "learning-ordering-decisions-v2.schema.json",
+  "type": "object",
+  "required": ["schema_version", "graph_revision", "selected_order", "rationale", "learner_context"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "graph_revision": {"type": "string", "minLength": 1},
+    "selected_order": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+    "rationale": {"type": "string", "minLength": 1},
+    "learner_context": {
+      "type": "object", "required": ["current_level", "learning_goal", "diagnostic_answers", "estimated_boundary"],
+      "properties": {
+        "current_level": {"type": "string", "minLength": 1},
+        "learning_goal": {"type": "string", "minLength": 1},
+        "diagnostic_answers": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "object", "required": ["unit_id", "prompt", "options", "correct_index", "choice", "correct"], "properties": {"unit_id": {"type": "string"}, "prompt": {"type": "string", "minLength": 1}, "options": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}, "correct_index": {"type": "integer", "minimum": 0, "maximum": 3}, "choice": {"type": ["integer", "null"], "minimum": 0, "maximum": 3}, "correct": {"type": "boolean"}}, "additionalProperties": false}},
+        "estimated_boundary": {"type": "string", "minLength": 1}
+      }, "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

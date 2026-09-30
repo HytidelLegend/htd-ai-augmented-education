@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "student-learning-profile-v2.schema.json",
+  "type": "object",
+  "required": [
+    "profile_type", "schema_version", "profile_id", "profile_date", "created_at",
+    "updated_at", "domain", "title", "current_stage", "primary_goals",
+    "secondary_goals", "excluded_goals", "current_projects", "experience",
+    "constraints", "priority_topics", "deferred_topics", "learning_preferences", "knowledge"
+  ],
+  "properties": {
+    "profile_type": {"const": "student_learning_profile"},
+    "schema_version": {"const": "2.0"},
+    "profile_id": {"type": "string", "minLength": 1},
+    "profile_date": {"type": "string", "format": "date"},
+    "created_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"},
+    "updated_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"},
+    "domain": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "current_stage": {"type": "string", "minLength": 1},
+    "primary_goals": {"$ref": "#/$defs/nonEmptyStrings"},
+    "secondary_goals": {"$ref": "#/$defs/strings"},
+    "excluded_goals": {"$ref": "#/$defs/strings"},
+    "current_projects": {"$ref": "#/$defs/strings"},
+    "experience": {"$ref": "#/$defs/strings"},
+    "constraints": {"$ref": "#/$defs/strings"},
+    "priority_topics": {"$ref": "#/$defs/strings"},
+    "deferred_topics": {"$ref": "#/$defs/strings"},
+    "learning_preferences": {"$ref": "#/$defs/strings"},
+    "knowledge": {
+      "type": "object",
+      "required": ["clear", "medium", "unclear"],
+      "properties": {
+        "clear": {"$ref": "#/$defs/strings"},
+        "medium": {"$ref": "#/$defs/strings"},
+        "unclear": {"$ref": "#/$defs/strings"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "strings": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "nonEmptyStrings": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["input", "words", "intraListRelations", "pendingExternalCandidates", "coverage"],
+  "properties": {
+    "input": {"type": "object", "required": ["sha256", "format", "source"], "properties": {
+      "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+      "format": {"enum": ["text", "csv"]}, "source": {"type": "string"}
+    }},
+    "words": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["word", "line", "sourceLines", "runId", "status"], "properties": {
+      "word": {"type": "string"}, "line": {"type": "integer", "minimum": 1},
+      "sourceLines": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}},
+      "runId": {"type": "string"}, "status": {"const": "completed"},
+      "partOfSpeechHint": {"type": "string"}, "meaningHint": {"type": "string"}
+    }}},
+    "intraListRelations": {"type": "array", "items": {"type": "object", "required": ["left", "right", "type", "reasons", "verificationStatus"], "properties": {
+      "left": {"type": "string"}, "right": {"type": "string"},
+      "type": {"enum": ["synonym", "near_synonym", "antonym", "spelling_similar", "family"]},
+      "reasons": {"type": "array", "items": {"type": "string"}},
+      "sourceSenseId": {"type": ["string", "null"]}, "targetSenseId": {"type": ["string", "null"]},
+      "derivationConfirmed": {"type": "boolean"},
+      "verificationStatus": {"enum": ["agent_reviewed", "automatic_passed"]},
+      "sourceRefs": {"type": "array"}
+    }, "allOf": [{"if": {"properties": {"verificationStatus": {"const": "automatic_passed"}},
+                          "required": ["verificationStatus"]},
+                 "then": {"properties": {"type": {"const": "spelling_similar"}}}}
+    ]}},
+    "pendingExternalCandidates": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["fromWord", "word", "status", "sourceRef"],
+      "properties": {"fromWord": {"type": "string"}, "word": {"type": "string"},
+        "status": {"const": "pending_collection"}, "sourceRef": {"type": "object"}}}},
+    "coverage": {"type": "object", "required": ["completed", "total", "sites"], "properties": {
+      "completed": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 1},
+      "sites": {"type": "object", "required": ["cambridge", "oxford", "longman", "thesaurus"], "additionalProperties": {"type": "integer", "minimum": 0}}
+    }}
+  }
+}

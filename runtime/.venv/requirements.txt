@@ -3,3 +3,4 @@
 jsonschema>=4.23,<5
 pytest>=8.3,<9
 PyYAML>=6.0,<7
+playwright>=1.55,<2

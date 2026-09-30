@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["edits"],
+  "properties": {
+    "needsReview": {"type": "boolean"}, "reviewReason": {"type": "string"},
+    "evidenceDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relationDecisions": {"$ref": "#/$defs/relationDecisions"},
+    "derivativeDecisions": {"$ref": "#/$defs/derivativeDecisions"},
+    "dropSenseIndexes": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 0}},
+    "alignmentEvidenceAdditions": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["senseIndex", "source", "fragment"],
+      "properties": {"senseIndex": {"type": "integer", "minimum": 0},
+                     "source": {"type": "integer", "minimum": 0},
+                     "fragment": {"type": "integer", "minimum": 0}}
+    }},
+    "relationSenseMappings": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["source", "groupIndex", "senseIndex"],
+      "properties": {"source": {"type": "integer", "minimum": 0},
+        "groupIndex": {"type": "integer", "minimum": 0},
+        "senseIndex": {"type": "integer", "minimum": 0}}
+    }},
+    "relationTypeOverrides": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["source", "groupIndex", "word", "type"],
+      "properties": {"source": {"type": "integer", "minimum": 0},
+        "groupIndex": {"type": "integer", "minimum": 0},
+        "word": {"type": "string"},
+        "type": {"enum": ["synonym", "near_synonym", "antonym"]}}
+    }},
+    "usageUpdates": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["senseIndex", "kind", "itemIndex"],
+      "properties": {"senseIndex": {"type": "integer", "minimum": 0},
+        "kind": {"enum": ["examples", "collocations", "phrases"]},
+        "itemIndex": {"type": "integer", "minimum": 0},
+        "translationZh": {"type": "string", "minLength": 1},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1, "multipleOf": 0.01},
+        "enSpans": {"type": "array", "items": {"$ref": "#/$defs/span"}},
+        "zhSpans": {"type": "array", "items": {"$ref": "#/$defs/span"}}}}},
+    "legacyUsageUpdates": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["itemId", "translationZh", "confidence"],
+      "properties": {"itemId": {"type": "string", "pattern": "^i_[0-9a-f]{20}$"},
+        "translationZh": {"type": "string", "minLength": 1},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1, "multipleOf": 0.01},
+        "zhSpans": {"type": "array", "items": {"$ref": "#/$defs/span"}}}}},
+    "edits": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["senseIndex", "path", "value"],
+      "properties": {"senseIndex": {"type": "integer", "minimum": 0},
+                     "path": {"type": "string", "pattern": "^(partOfSpeech|definitionZh|definitionEn|zhConfidence|enConfidence|examples/[0-9]+/(text|confidence))$"},
+                     "value": {"type": ["string", "number"]}}
+    }}
+  },
+  "$defs": {
+    "relationDecisions": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["candidateId", "action"],
+      "properties": {"candidateId": {"type": "string", "pattern": "^rc_[0-9a-f]{20}$"},
+        "action": {"enum": ["accept", "reject", "uncertain"]},
+        "type": {"enum": ["synonym", "near_synonym", "antonym"]}},
+      "allOf": [{"if": {"properties": {"action": {"const": "accept"}}}, "then": {"required": ["type"]}}]
+    }},
+    "derivativeDecisions": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["candidateId", "action"],
+      "properties": {"candidateId": {"type": "string", "pattern": "^dc_[0-9a-f]{20}$"},
+        "action": {"enum": ["direct_derivative", "same_family", "reject", "uncertain"]}}
+    }},
+    "span": {"type": "object", "additionalProperties": false, "required": ["start", "end"],
+      "properties": {"start": {"type": "integer", "minimum": 0}, "end": {"type": "integer", "minimum": 1}}}
+  }
+}

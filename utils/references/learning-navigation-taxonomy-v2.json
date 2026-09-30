@@ -1,0 +1,7 @@
+{
+  "schema_version": "2.0",
+  "concept_roles": ["introduce", "review", "apply", "contrast"],
+  "content_roles": ["foundational_principle", "author_framework", "case_observation", "marketing_claim", "needs_evidence", "possibly_outdated", "legal_or_policy_risk", "financial_risk", "ethical_risk", "not_yet_classified"],
+  "importance": ["required", "recommended", "optional", "deferred", "critical_reading", "not_recommended_now"],
+  "source_relationships": ["full_edition", "trial_edition", "revised_edition", "partial_overlap", "exact_duplicate", "unknown_relationship"]
+}

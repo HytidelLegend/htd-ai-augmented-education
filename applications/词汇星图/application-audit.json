@@ -1,0 +1,18 @@
+{
+  "$schema": "../../utils/references/application-audit.schema.json",
+  "schema_version": 1,
+  "application_id": "词汇星图",
+  "source_root": "applications/词汇星图",
+  "documents": {
+    "readme": "applications/词汇星图/README.md",
+    "prd": "docs/PRDs/词汇星图.md"
+  },
+  "version": {
+    "source": "package.json",
+    "field": "version"
+  },
+  "implementation": {
+    "state_machine": "applications/词汇星图/scripts/service.py",
+    "data_model": "utils/scripts/dictionary_store.py"
+  }
+}

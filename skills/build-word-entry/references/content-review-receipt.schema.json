@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["decisionDigest", "candidateDigest", "reviewedAt"],
+  "properties": {
+    "decisionDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reviewedAt": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interactive-tutor-summary-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "topic", "feedback", "off_topic_questions", "updated_at"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "topic": {"type": "string"},
+    "feedback": {"type": "array", "items": {"type": "object", "required": ["lesson_id", "feedback", "adjustment"], "properties": {"lesson_id": {"type": "string"}, "feedback": {"type": "string"}, "adjustment": {"type": "string"}}, "additionalProperties": false}},
+    "off_topic_questions": {"type": "array", "items": {"type": "string"}},
+    "updated_at": {"type": "string"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updatedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
+    },
+    "stageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1
+    },
+    "words": {
+      "type": "object",
+      "patternProperties": {
+        "^w_[0-9a-f]{20}$": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sourceEntryRevision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "coreSenseIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^s_[0-9a-f]{20}$"
+              }
+            },
+            "moreSenseIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^s_[0-9a-f]{20}$"
+              }
+            },
+            "contentIdsBySense": {
+              "type": "object",
+              "patternProperties": {
+                "^s_[0-9a-f]{20}$": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^i_[0-9a-f]{20}$"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "relationshipIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "sourceEntryRevision",
+            "coreSenseIds",
+            "moreSenseIds",
+            "contentIdsBySense",
+            "relationshipIds"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "revision",
+    "updatedAt",
+    "stageId",
+    "label",
+    "words"
+  ]
+}

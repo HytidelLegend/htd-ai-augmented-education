@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["nodes", "edges", "families", "entryCount", "placeholderCount", "hiddenCount", "selected"],
+  "properties": {
+    "nodes": {"type": "array", "items": {"type": "object", "required": ["nodeId", "wordId", "lemma", "familyId", "core", "more", "senseIds", "outsideStage", "kind", "status"],
+      "properties": {"nodeId": {"type": "string"}, "wordId": {"type": "string"}, "lemma": {"type": "string"}, "familyId": {"type": "string"},
+        "core": {"type": "array"}, "more": {"type": "array"}, "senseIds": {"type": "array"}, "outsideStage": {"type": "boolean"},
+        "kind": {"enum": ["entry", "inflection", "derivative", "relation_candidate"]}, "status": {"type": "string"},
+        "sourceFormIds": {"type": "array", "items": {"type": "string"}}, "sourceDerivativeIds": {"type": "array", "items": {"type": "string"}}}}},
+    "edges": {"type": "array", "items": {"type": "object", "required": ["source", "target", "type", "relationshipId", "status", "wordLevel", "ruleClassified", "relations"],
+      "properties": {"source": {"type": "string"}, "target": {"type": "string"},
+        "type": {"enum": ["family", "synonym", "near_synonym", "antonym", "spelling_similar"]},
+        "relationshipId": {"type": "string"}, "status": {"type": "string"}, "wordLevel": {"type": "boolean"},
+        "ruleClassified": {"type": "boolean"}, "sourceSenseId": {"type": ["string", "null"]},
+        "targetSenseId": {"type": ["string", "null"]}, "relations": {"type": "array"}}}},
+    "families": {"type": "array", "items": {"type": "object", "required": ["familyId", "nodeIds"],
+      "properties": {"familyId": {"type": "string"}, "nodeIds": {"type": "array", "items": {"type": "string"}}}}},
+    "entryCount": {"type": "integer", "minimum": 0}, "placeholderCount": {"type": "integer", "minimum": 0},
+    "hiddenCount": {"type": "integer", "minimum": 0}, "selected": {"type": ["string", "null"]}
+  }
+}

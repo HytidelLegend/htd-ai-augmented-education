@@ -11,6 +11,9 @@
     "./skills/build-mnemonic-keywords",
     "./skills/mark-memory-spans",
     "./skills/render-handwritten-essay-card",
+    "./skills/build-word-entry",
+    "./skills/beta-build-curriculum-navigation",
+    "./skills/beta-interactive-tutor",
     "./skills/project-doc-audit"
   ]
 }

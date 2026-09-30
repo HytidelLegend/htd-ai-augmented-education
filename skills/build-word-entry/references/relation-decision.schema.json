@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false, "required": ["accepted"],
+  "properties": {"accepted": {"type": "array", "items": {
+    "type": "object", "additionalProperties": false,
+    "required": ["left", "right", "type"],
+    "properties": {
+      "left": {"type": "string"}, "right": {"type": "string"},
+      "type": {"enum": ["synonym", "near_synonym", "antonym", "spelling_similar", "family"]},
+      "sourceSenseId": {"type": "string"}, "targetSenseId": {"type": "string"},
+      "derivationConfirmed": {"type": "boolean"},
+      "evidence": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+        "required": ["word", "source", "fragment"],
+        "properties": {"word": {"type": "string"}, "source": {"type": "integer", "minimum": 0}, "fragment": {"type": "integer", "minimum": 0}}
+      }}
+    }
+  }}}
+}

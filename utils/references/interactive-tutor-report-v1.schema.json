@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "interactive-tutor-report-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "topic", "created_at", "reported_at", "overall_mastery", "units", "coverage_gaps", "deferred_items"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "topic": {"type": "string"},
+    "created_at": {"type": "string"},
+    "reported_at": {"type": "string"},
+    "overall_mastery": {"type": "number", "minimum": 0, "maximum": 1},
+    "units": {"type": "array", "items": {"type": "object"}},
+    "coverage_gaps": {"type": "array", "items": {"type": "object"}},
+    "deferred_items": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

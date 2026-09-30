@@ -39,6 +39,10 @@ python skills/<skill-name>/scripts/cli.py <command> ...
 | `mark-memory-spans` | 从纯文本提取可挖空的语义记忆要点，保存不重叠 span，并用「」标记；支持新增、删除和调整 span | 用户要求标记背诵重点、提取记忆要点、生成挖空文本或修改已有记忆 span 时 | `start → resume`；编辑使用 `edit` |
 | `render-handwritten-essay-card` | 将英语作文生成通用英语考试答题卡手写印刷体照片提示词，并在确认后调用 `/imagen` | 用户提供英语作文并要求生成答题卡照片时 | `python skills/render-handwritten-essay-card/scripts/cli.py start --root . --input request.json` |
 
+| `build-word-entry` | 从单词或 UTF-8 词表生成可恢复、可校验的英语词条和批次关系 | 用户要建立词条、批量处理词表或恢复运行时 | `python skills/build-word-entry/scripts/cli.py start-word --root . --word bank` |
+| `beta-build-curriculum-navigation` | 从一个或多个 Markdown 资料生成或增量维护课程学习顺序；本地测试版 | 用户要建立课程索引、安排跨资料学习顺序或插入新资料时 | `python skills/beta-build-curriculum-navigation/scripts/cli.py prepare --root . --request request.json` |
+| `beta-interactive-tutor` | 按单份 Markdown 或课程导航生成有证据的讲义，收集答案并更新学习进度；本地测试版 | 用户要开始或继续交互式学习、作答或获取学习报告时 | `python skills/beta-interactive-tutor/scripts/cli.py start --root . --request request.json` |
+
 ### AI 辅助教学
 
 暂无
@@ -100,6 +104,69 @@ scenario_examples:
 正式结果位于 `outputs/htd-ai-augmented-education/runs/<run-id>/result.json` 和 `result.md`，状态、事件、来源清单及草稿位于 `logs/htd-ai-augmented-education/runs/<run-id>/`。默认使用 `deliver` 将通过验证的 `result.md` 作为 Markdown 正文直接返回对话。
 
 ## AI 辅助学习
+
+### beta-build-curriculum-navigation
+
+个性化规划前确认学习者当前水平和学习目的；多个合法拓扑序出现时，Agent 逐题四选一、按二分思路估计知识边界，再在全部先修约束内选与目标和边界匹配的路线，并在排序理由中留痕。
+
+这是本地测试版，暂不提交注册与说明改动。
+
+#### 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: build-course-order
+    user_request: "根据这些 Markdown 资料建立课程学习导航，并说明先学顺序"
+    when_to_call: "用户提供项目内 Markdown 资料，要求建立或增量维护课程索引、学习顺序时"
+    invocation: "init-request → prepare → resolve-source（逐份）→ resolve → resolve-ordering（如需）→ commit → verify"
+    expected_output: "经批准的导航 JSON、确定性 Markdown 视图和来源片段"
+```
+
+入口为 `runtime/.venv/Scripts/python.exe skills/beta-build-curriculum-navigation/scripts/cli.py`。请求采用通用 v2 schema；`navigation_json` 可为空，默认正式产物位于 `outputs/beta-build-curriculum-navigation/runs/<run-id>/`，也可指定项目内任意 JSON 路径。状态、来源快照、决策模板、预览、差异和验证报告位于 `logs/beta-build-curriculum-navigation/runs/<run-id>/`。脚本生成候选与模板，Agent 只按候选 ID 补少量语义判断，正式 Markdown 由脚本渲染。
+
+状态机按 `prepared → source_navigation_fragment_required（逐份）→ all_source_navigation_fragments_ready → ordering_decision_required（如需）／awaiting_loop_resolution（如需）→ awaiting_approval → completed` 推进；来源冲突、输入变化与运行错误进入 `paused_*`，使用 `status` 和 `resume` 从原运行恢复。提交前核对预览哈希与正式导航并发变化，`verify` 检查来源、顺序、JSON、Markdown 和单资料片段。本测试版目录由 `.gitignore` 忽略；注册与本节说明仅供本地测试，暂不提交。
+
+### beta-interactive-tutor
+
+首课前先用 `assessment-start` 确认当前水平和学习目的，再根据 `next_target` 一题一题调用 `assessment-question`、`assessment-answer` 完成最多五题的边界诊断。未完成时 `prepare-lesson` 返回待入学或待测评状态，不生成讲义。题目及答案只保存在运行日志中。
+
+#### 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: learn-one-material
+    user_request: "按这份 Markdown 资料逐课教我，并检查我的练习答案"
+    when_to_call: "用户要求从一份 Markdown 或已完成的课程导航开始交互式学习时"
+    invocation: "init-request → start → assessment-start → assessment-question/assessment-answer（逐题；或 assessment-import）→ prepare-lesson → publish-lesson → check-answers/submit-chat-answer → review-answers → report → verify"
+    expected_output: "可追溯的讲义、学习路线图、摘要和学习报告"
+```
+
+入口为 `runtime/.venv/Scripts/python.exe skills/beta-interactive-tutor/scripts/cli.py`。多份资料须先由 `beta-build-curriculum-navigation` 生成 v2 导航 JSON、同名 Markdown 和 `.sources/`，再用 `supply-navigation` 恢复。脚本校验导航与来源，按当前单元生成证据包及紧凑决策模板；Agent 只补 Bloom 层级、少量讲解与题目、证据 ID 和必要的批改判断。脚本渲染讲义、答案栏、表格、摘要和报告。可选 v2 学习档案优先取请求路径，否则使用导航引用；双语术语表须显式提供，可用 `init-bilingual-glossary --file <terms.md>` 生成 `Source term`、`Target term`、`Note` 三列表格模板，项目单列术语表不能充当译法。批改模板中的得分、反馈和下一步动作必须由 Agent 填写。正式 Markdown 和最终报告 JSON 位于 `outputs/beta-interactive-tutor/runs/<run-id>/`，状态、快照及中间决策位于 `logs/beta-interactive-tutor/runs/<run-id>/`。
+
+状态机按 `initialized → input_mode_detected → navigation_bundle_validated → student_profile_loaded → glossary_snapshot_ready → learning_queue_ready → unit_selected → evidence_bundle_ready → lesson_decision_required → awaiting_answer → review_decision_required → review_applied → completed` 推进；多资料、导航不一致、来源或档案变化以及用户暂停进入相应 `paused_*` 状态。使用 `status` 查看、`resume` 恢复、`verify` 检查，退出码遵循本说明书。旧项目的学习工程布局不在此测试版的恢复范围内。
+
+### build-word-entry
+
+#### 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: build-dictionary-entry
+    user_request: "请从这份词表建立可追溯的英语词条"
+    when_to_call: "用户提供单词或 UTF-8 词表并要求生成、更新词条时"
+    invocation: "start-word/start-list → status → resume → verify → deliver"
+    expected_output: "生成词条 JSON、带 AI 置信度标注的可读结果及可恢复的批次报告"
+```
+
+入口为 `runtime/.venv/Scripts/python.exe skills/build-word-entry/scripts/cli.py`，支持 `start-word`、`start-list`、`resume`、`status`、`verify` 和 `deliver`。文本词表一行一词；CSV 指定单词列；JSON 接受对象数组或 words 数组，JSONL 每行一个对象，并读取 word 与可选提示字段，去重后保存全部原始行号。完整词条按 lemma 首字母写入 outputs/词汇星图/dicts/a.jsonl 至 z.jsonl；旧 entries 目录作为状态机兼容工作文件，同步后由应用读取 JSONL。当前不处理学龄段标签。单词与批次各有显式状态机；证据采集使用四站可见浏览器，脚本预填 `decision-template.json`，人工登录或验证码操作暂停；Agent 只校对并补足少量结构化义项判断，必要时按内容项给出证据索引。Cambridge 候选按词性保留英美 IPA 和音频来源 URL。AI 生成释义与例句通过结构检查后可入库，保留 `pending`、`confidence` 和生成方式，展示脚本追加 `（AI 生成，置信度 0.85）`。`gaps.json` 记录来源覆盖与逐字段 `fieldGaps`：确实有候选却未发布时标记待补，证据不足时标记待核验；选择器预览限量不算采集截断。形容词比较级／最高级经来源核对后存于 `inflections[]`，独立派生词关系存于 `derivatives[]`。新版词条的无法判断的同义／近义／反义候选按来源义项保存在 `pendingRelations[]`；旧版词条仍可验证。词族与直接派生词分开确认；已判断的表外关系可先以词面正式关系保存，目标义项核对后再链接。正式批次结果只含输入文件名，不泄漏本地绝对路径；原始网页快照和浏览器会话不保存。正式结果位于 `outputs/build-word-entry/runs/<run-id>/`，状态与中间证据位于 `logs/build-word-entry/runs/<run-id>/`。
+
+当前 1.3 版还由脚本生成 `relation-review-template.json`：Agent 按候选 ID 完成关系与派生词判断，脚本校验全量覆盖后发布。已确认的表外关系进入正式词条，目标词条未建时使用 `lemma_only`；旧版词条继续可验证。
+
+1.3 新词条的例句、搭配和短语均要求独立中译；例句用纯文本及双语字符区间由 Python 渲染加粗，搭配和短语只显示中译。Cambridge 成对例句与中译优先按页面结构采集；缺失时 `decision-template.json` 预留字段，Agent 在 `usageUpdates` 中补少量译文、置信度和中文区间。旧内容补译使用 `legacyUsageUpdates`，待补清单逐内容 ID 生成；新判断必须绑定本次 `evidenceDigest`。状态机在 `validating_entry` 后进入 `verifying_content`，通过当前页面定位及规则核验的读音和词形标记 `automatic_passed`，否则维持待核验并在 `gaps.json` 的 `verificationGaps` 记录具体原因。旧运行继续使用原版本状态机。
+
+目标词条随后单独建成时，单词状态机生成 `incoming-link-review.json` 并暂停链接复核；`resume --input` 按 `link-decision.schema.json` 接收逐项链接或暂缓决定，脚本核对两端义项证据与修订状态后补入双向链接。
+
+1.4 新词条增加可恢复的内容审查阶段。脚本从候选词条生成 `content-review-template.json`，Agent 按 `content-review-decision.schema.json` 对义项内的释义、用法及译文作分组判断并列出暂缓内容 ID。脚本扩展为逐内容项 `agent_passed` 与 `verificationRef`；暂缓项保持 `pending` 并进入 `contentGaps`。AI 生成内容通过后仍保留生成方式和置信度。旧运行继续按原版本状态机恢复。
 
 ### en-writing-master
 

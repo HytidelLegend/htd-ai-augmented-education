@@ -45,8 +45,10 @@ def _extract_project_fields(text: str) -> list[str]:
     return re.findall(r'"([A-Za-z][A-Za-z0-9_]*)"\s*:', match.group(0))
 
 
-def _doc_path_tokens(text: str) -> set[str]:
-    return set(re.findall(r"outputs/[^`\s)]+", text))
+def _doc_path_tokens(text: str, app_id: str) -> set[str]:
+    """Compare the application's data root, excluding skill and migration paths."""
+    root = f"outputs/{app_id}/"
+    return {root} if root in text else set()
 
 
 def audit_applications(root: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -105,8 +107,8 @@ def audit_applications(root: Path) -> tuple[list[dict[str, Any]], dict[str, Any]
         if missing_fields:
             _add(findings, "application_data_contract_mismatch", _rel(root, prd_path), "补充 PRD JSON 契约中缺失的项目字段", missing_fields, model_fields, [_rel(root, model_path), _rel(root, prd_path)])
 
-        readme_paths = _doc_path_tokens(readme)
-        prd_paths = _doc_path_tokens(prd)
+        readme_paths = _doc_path_tokens(readme, app_id)
+        prd_paths = _doc_path_tokens(prd, app_id)
         if readme_paths and prd_paths and readme_paths != prd_paths:
             _add(findings, "application_readme_prd_mismatch", _rel(root, readme_path), "统一 README 与 PRD 的项目目录路径说明", sorted(readme_paths), sorted(prd_paths), [_rel(root, readme_path), _rel(root, prd_path)])
 

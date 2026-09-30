@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "learning-navigation-decisions-v2.schema.json",
+  "type": "object",
+  "required": ["schema_version", "navigation_title", "student_analysis", "course_overview", "stage_overviews", "module_overviews", "overview_units", "source_metadata", "source_relationships", "relationship_records", "items", "existing_unit_updates", "coverage_gaps", "deferred_items", "lesson_generation_policy"],
+  "properties": {
+    "schema_version": {"const": "2.0"}, "navigation_title": {"type": "string", "minLength": 1},
+    "student_analysis": {"$ref": "#/$defs/studentAnalysis"},
+    "course_overview": {"$ref": "#/$defs/overview"},
+    "stage_overviews": {"type": "array", "items": {"$ref": "#/$defs/stageOverview"}},
+    "module_overviews": {"type": "array", "items": {"$ref": "#/$defs/moduleOverview"}},
+    "overview_units": {"type": "array", "items": {"$ref": "#/$defs/overviewUnit"}},
+    "source_metadata": {"type": "array", "items": {"$ref": "#/$defs/sourceMetadata"}},
+    "source_relationships": {"type": "array", "items": {"$ref": "#/$defs/sourceRelationship"}},
+    "relationship_records": {"type": "array", "items": {"$ref": "#/$defs/relationshipRecord"}},
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "existing_unit_updates": {"type": "array", "items": {"$ref": "#/$defs/unitUpdate"}},
+    "coverage_gaps": {"type": "array", "items": {"$ref": "#/$defs/gap"}},
+    "deferred_items": {"type": "array", "items": {"$ref": "#/$defs/deferred"}},
+    "lesson_generation_policy": {"$ref": "#/$defs/lessonPolicy"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "strings": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "studentAnalysis": {
+      "type": "object",
+      "required": ["explicit_facts", "inferred_level", "knowledge_strengths", "knowledge_gaps", "application_gaps", "learning_goals", "excluded_goals", "resource_constraints", "recommended_entry_level", "recommended_difficulty_curve", "evidence_refs", "confidence", "curriculum_impacts", "student_change_reviewed"],
+      "properties": {
+        "explicit_facts": {"$ref": "#/$defs/strings"}, "inferred_level": {"type": "string"},
+        "knowledge_strengths": {"$ref": "#/$defs/strings"}, "knowledge_gaps": {"$ref": "#/$defs/strings"}, "application_gaps": {"$ref": "#/$defs/strings"},
+        "learning_goals": {"$ref": "#/$defs/strings"}, "excluded_goals": {"$ref": "#/$defs/strings"}, "resource_constraints": {"$ref": "#/$defs/strings"},
+        "recommended_entry_level": {"type": "string"}, "recommended_difficulty_curve": {"type": "string"}, "evidence_refs": {"$ref": "#/$defs/strings"},
+        "confidence": {"enum": ["low", "medium", "high"]}, "curriculum_impacts": {"$ref": "#/$defs/strings"}, "student_change_reviewed": {"type": "boolean"}
+      }, "additionalProperties": false
+    },
+    "overview": {"type": "object", "required": ["purpose", "core_questions", "completion_criteria"], "properties": {"purpose": {"type": "string", "minLength": 1}, "core_questions": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "completion_criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}}}, "additionalProperties": false},
+    "stageOverview": {"type": "object", "required": ["title", "purpose", "core_questions", "completion_criteria"], "properties": {"title": {"type": "string", "minLength": 1}, "purpose": {"type": "string", "minLength": 1}, "core_questions": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "completion_criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}}}, "additionalProperties": false},
+    "moduleOverview": {"type": "object", "required": ["stage", "title", "purpose", "core_questions", "completion_criteria"], "properties": {"stage": {"type": "string", "minLength": 1}, "title": {"type": "string", "minLength": 1}, "purpose": {"type": "string", "minLength": 1}, "core_questions": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "completion_criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}}}, "additionalProperties": false},
+    "conceptRole": {"type": "object", "required": ["concept", "role"], "properties": {"concept": {"type": "string", "minLength": 1}, "role": {"enum": ["introduce", "review", "apply", "contrast"]}}, "additionalProperties": false},
+    "visualUse": {"type": "object", "required": ["figure_id", "purpose", "placement_hint"], "properties": {"figure_id": {"type": "string"}, "purpose": {"type": "string", "minLength": 1}, "placement_hint": {"type": "string", "minLength": 1}}, "additionalProperties": false},
+    "caseContext": {"type": "object", "required": ["era", "context_scale", "domain", "transferable_principle", "changed_conditions", "needs_current_fact_check", "evidence_status"], "properties": {"era": {"type": "string"}, "context_scale": {"type": "string"}, "domain": {"type": "string"}, "transferable_principle": {"type": "string"}, "changed_conditions": {"$ref": "#/$defs/strings"}, "needs_current_fact_check": {"type": "boolean"}, "evidence_status": {"enum": ["sufficient_for_navigation", "needs_lesson_review", "unknown"]}}, "additionalProperties": false},
+    "item": {
+      "type": "object", "required": ["candidate_id", "include", "title", "stage", "module", "importance", "difficulty", "purpose", "learning_objectives", "prerequisites", "concept_roles", "content_roles", "risk_tags", "teaching_notes", "case_context", "visual_reference_uses"],
+      "properties": {
+        "candidate_id": {"type": "string", "pattern": "^(SEC|DOC)-[0-9a-f]{16}$"}, "include": {"type": "boolean"}, "title": {"type": "string"}, "stage": {"type": "string"}, "module": {"type": "string"},
+        "importance": {"enum": ["required", "recommended", "optional", "deferred", "critical_reading", "not_recommended_now"]}, "difficulty": {"enum": ["beginner", "intermediate", "advanced"]},
+        "purpose": {"type": "string"}, "learning_objectives": {"$ref": "#/$defs/strings"}, "prerequisites": {"$ref": "#/$defs/strings"},
+        "concept_roles": {"type": "array", "items": {"$ref": "#/$defs/conceptRole"}},
+        "content_roles": {"type": "array", "items": {"enum": ["foundational_principle", "author_framework", "case_observation", "marketing_claim", "needs_evidence", "possibly_outdated", "legal_or_policy_risk", "financial_risk", "ethical_risk", "not_yet_classified"]}, "uniqueItems": true},
+        "risk_tags": {"$ref": "#/$defs/strings"}, "teaching_notes": {"$ref": "#/$defs/strings"}, "case_context": {"$ref": "#/$defs/caseContext"},
+        "visual_reference_uses": {"type": "array", "items": {"$ref": "#/$defs/visualUse"}}
+      }, "additionalProperties": false
+    },
+    "overviewUnit": {"type": "object", "required": ["title", "stage", "module", "purpose", "learning_objectives", "prerequisites", "concept_roles"], "properties": {"title": {"type": "string"}, "stage": {"type": "string"}, "module": {"type": "string"}, "purpose": {"type": "string"}, "learning_objectives": {"$ref": "#/$defs/strings"}, "prerequisites": {"$ref": "#/$defs/strings"}, "concept_roles": {"type": "array", "items": {"$ref": "#/$defs/conceptRole"}}}, "additionalProperties": false},
+    "unitUpdate": {"type": "object", "required": ["unit_id"], "properties": {"unit_id": {"type": "string"}, "stage": {"type": "string"}, "module": {"type": "string"}, "importance": {"type": "string"}, "difficulty": {"type": "string"}, "purpose": {"type": "string"}, "learning_objectives": {"$ref": "#/$defs/strings"}, "prerequisites": {"$ref": "#/$defs/strings"}, "concept_roles": {"type": "array", "items": {"$ref": "#/$defs/conceptRole"}}, "content_roles": {"$ref": "#/$defs/strings"}, "risk_tags": {"$ref": "#/$defs/strings"}, "teaching_notes": {"$ref": "#/$defs/strings"}}, "additionalProperties": false},
+    "sourceMetadata": {"type": "object", "required": ["source_id", "author", "edition", "theme", "content_tendency", "scan_confidence"], "properties": {"source_id": {"type": "string"}, "author": {"type": "string"}, "edition": {"type": "string"}, "theme": {"type": "string"}, "content_tendency": {"type": "array", "items": {"enum": ["theory", "method", "case", "philosophy", "unknown"]}, "uniqueItems": true}, "scan_confidence": {"enum": ["low", "medium", "high"]}}, "additionalProperties": false},
+    "sourceRelationship": {"type": "object", "required": ["source_id", "related_source_id", "relationship_type", "unique_section_candidate_ids", "overlapping_section_candidate_ids", "confidence"], "properties": {"source_id": {"type": "string"}, "related_source_id": {"type": "string"}, "relationship_type": {"enum": ["full_edition", "trial_edition", "revised_edition", "partial_overlap", "exact_duplicate", "unknown_relationship"]}, "unique_section_candidate_ids": {"$ref": "#/$defs/strings"}, "overlapping_section_candidate_ids": {"$ref": "#/$defs/strings"}, "confidence": {"enum": ["low", "medium", "high"]}}, "additionalProperties": false},
+    "relationshipRecord": {"type": "object", "required": ["predecessor_ref", "successor_ref", "reason", "evidence_refs", "confidence", "source_ids"], "properties": {"predecessor_ref": {"type": "string", "minLength": 1}, "successor_ref": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}, "evidence_refs": {"$ref": "#/$defs/strings"}, "confidence": {"enum": ["low", "medium", "high"]}, "source_ids": {"$ref": "#/$defs/strings"}}, "additionalProperties": false},
+    "gap": {"type": "object", "required": ["topic", "reason", "future_action"], "properties": {"topic": {"type": "string"}, "reason": {"type": "string"}, "future_action": {"type": "string"}}, "additionalProperties": false},
+    "deferred": {"type": "object", "required": ["topic", "reason", "prerequisites", "reentry_condition"], "properties": {"topic": {"type": "string"}, "reason": {"type": "string"}, "prerequisites": {"$ref": "#/$defs/strings"}, "reentry_condition": {"type": "string"}}, "additionalProperties": false},
+    "lessonPolicy": {"type": "object", "required": ["read_scope", "locator_failure", "distinguish_sources", "language_style", "fact_check_current", "application_exercises", "image_policy"], "properties": {"read_scope": {"type": "string"}, "locator_failure": {"type": "string"}, "distinguish_sources": {"type": "string"}, "language_style": {"type": "string"}, "fact_check_current": {"type": "string"}, "application_exercises": {"type": "string"}, "image_policy": {"const": "source_pointer_only"}}, "additionalProperties": false}
+  }
+}

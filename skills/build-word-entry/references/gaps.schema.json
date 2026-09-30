@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["sourceCoverage"],
+  "anyOf": [{"required": ["fieldGaps"]}, {"required": ["missingFields"]}],
+  "properties": {
+    "sourceCoverage": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["site", "status", "reason"],
+      "properties": {"site": {"enum": ["cambridge", "oxford", "longman", "thesaurus"]},
+                     "status": {"enum": ["extracted", "unavailable", "failed"]}, "reason": {"type": "string"},
+                     "truncatedSelectors": {"type": "array", "items": {"type": "string"}}}
+    }},
+    "missingFields": {"type": "array", "items": {"enum": ["pronunciations", "inflections", "derivatives"]}},
+    "contentGaps": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["field", "itemId", "status", "reason"],
+      "properties": {"field": {"enum": ["definitionZh", "definitionEn", "examples", "examples.translationZh",
+        "collocations", "collocations.translationZh", "phrases", "phrases.translationZh"]},
+        "itemId": {"type": "string", "pattern": "^i_[0-9a-f]{20}$"},
+        "status": {"const": "pending_review"}, "reason": {"const": "agent_deferred"}}}},
+    "verificationGaps": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["field", "itemId", "status", "reason", "sourceSites"],
+      "properties": {"field": {"enum": ["pronunciations", "inflections"]},
+        "itemId": {"type": "string", "pattern": "^i_[0-9a-f]{20}$"},
+        "status": {"const": "pending_review"},
+        "reason": {"enum": ["source_candidate_mismatch", "part_of_speech_mismatch", "audio_url_invalid", "ipa_format_invalid", "spelling_rule_unconfirmed"]},
+        "sourceSites": {"type": "array", "uniqueItems": true,
+          "items": {"enum": ["cambridge", "oxford", "longman", "thesaurus"]}}}
+    }},
+    "fieldGaps": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["field", "status", "reason", "sourceSites"],
+      "properties": {"field": {"enum": ["pronunciations", "inflections", "derivatives"]},
+        "status": {"enum": ["missing", "pending_review"]},
+        "reason": {"enum": ["candidate_not_published", "field_not_confirmed", "derivatives_not_collected"]},
+        "sourceSites": {"type": "array", "uniqueItems": true,
+          "items": {"enum": ["cambridge", "oxford", "longman", "thesaurus"]}}
+      }
+    }}
+  }
+}

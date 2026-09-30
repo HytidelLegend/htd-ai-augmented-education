@@ -1,0 +1,25 @@
+{
+  "schema_version": "2.0",
+  "title": "课程学习导航",
+  "created_at": "",
+  "updated_at": "",
+  "student_profile_ref": null,
+  "planning_profile": {},
+  "course_overview": {"purpose": "", "core_questions": [], "completion_criteria": []},
+  "lesson_generation_policy": {
+    "read_scope": "只读取导航所指向的具体章节及为理解该节所必需的最小上下文。",
+    "locator_failure": "定位失效、标题重名无法消歧或原文变化时暂停，不猜测或替换来源。",
+    "distinguish_sources": "明确区分原书事实、作者观点、案例、Agent 解释与待核验信息。",
+    "language_style": "先给 Overview，再用适合入门者的大白话、生活化类比和适合学习者的案例解释。",
+    "fact_check_current": "涉及可能变化的事实时，另行使用可靠来源核验。",
+    "application_exercises": "优先设计可用于学习者的实际目标的低成本练习。",
+    "image_policy": "source_pointer_only"
+  },
+  "sources": [],
+  "source_relationships": [],
+  "stages": [],
+  "units": [],
+  "concept_index": {},
+  "coverage_gaps": [],
+  "deferred_items": []
+}
