@@ -20,6 +20,7 @@ from entry import build_entry, entry_json_text, normalize_word, parse_word_list,
 from review import review_packet, validate_decisions
 from link_review import pending_links, apply_links
 from content_review import prepare as prepare_content_review, apply as apply_content_review, verify as verify_content_review
+from utils.scripts.dictionary_records import entries as entry_records
 from utils.scripts.browser_checkpoint import BrowserActionRequired, visible_browser
 from utils.scripts.dictionary_graph import canonical_family_ids
 from utils.scripts.file_transaction import project_lock
@@ -36,7 +37,7 @@ HERE = Path(__file__).resolve().parents[1]
 
 
 def publish_jsonl(root: Path) -> None:
-    sync_entry_files(root / "outputs" / "词汇星图" / "entries",
+    sync_entry_files(entry_records(root),
                      root / "outputs" / "词汇星图" / "dicts",
                      lambda value: validate_entry(value, HERE / "references" / "entry.schema.json"))
 WORD_STAGES = ("prepared", "validating_input", "opening_browser", "collecting_sources", "parsing_evidence", "aligning_senses", "building_candidates", "awaiting_small_ai_decision", "validating_entry", "verifying_sources", "verifying_relation_candidates", "publishing", "reviewing_existing_links", "completed")
@@ -210,6 +211,20 @@ def decision_template(evidence: list[dict], word: str | None = None,
                 "examples": [example_item],
                 "collocations": [], "phrases": [],
             }
+            # Exact English-definition matches can be cited across dictionaries
+            # without asking an agent to infer semantic equivalence.
+            normalize = lambda value: re.sub(r"\W+", " ", value.casefold(), flags=re.UNICODE).strip()
+            definition_key = normalize(candidate.get("definitionEn", ""))
+            pos_key = normalize(candidate.get("partOfSpeech", ""))
+            if definition_key:
+                matches = [{"source": other_index, "fragment": other_candidate["fragment"]}
+                           for other_index, other in enumerate(evidence) if other.get("site") in ("cambridge", "oxford", "longman") and other.get("site") != preferred
+                           for other_candidate in other.get("senseCandidates", [])
+                           if normalize(other_candidate.get("definitionEn", "")) == definition_key
+                           and normalize(other_candidate.get("partOfSpeech", "")) == pos_key]
+                if matches:
+                    sense["alignmentEvidence"] = matches
+                    sense["enEvidence"] = [sense["evidence"][0], *matches]
             if not sense["zhSourceSupported"]:
                 sense["zhConfidence"] = None
             if not sense["enSourceSupported"]:
@@ -286,6 +301,10 @@ def expand_decision(log: Path, response: dict) -> dict:
         alignment = senses[sense_index].setdefault("alignmentEvidence", [])
         if pointer not in alignment:
             alignment.append(pointer)
+        if senses[sense_index].get("enSourceSupported"):
+            english = senses[sense_index].setdefault("enEvidence", list(senses[sense_index].get("evidence", [])))
+            if pointer not in english:
+                english.append(pointer)
     dropped = set(response.get("dropSenseIndexes", []))
     if any(index >= len(senses) for index in dropped):
         raise ValueError("删除义项索引越界")
@@ -388,7 +407,7 @@ def advance_word(root: Path, run_id: str, decision: dict | None = None) -> int:
             evidence = read_json(log / "evidence.json")
             template = decision_template(evidence, word, request.get("entrySchemaVersion", "1.2"))
             write_json(log / "decision-template.json", template)
-            prior_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(word)}.json"
+            prior_path = entry_records(root) / f"{stable_word_id(word)}.json"
             prior_entry = read_json(prior_path) if prior_path.is_file() else None
             legacy_usage = ([{"itemId": item["itemId"], "kind": group, "text": item["text"],
                               "senseId": sense["senseId"]}
@@ -404,7 +423,7 @@ def advance_word(root: Path, run_id: str, decision: dict | None = None) -> int:
                                for group in source.get("relationGroups", [])]
             write_json(log / "generation_packet.json", {"word": word, "hints": {"partOfSpeech": request.get("partOfSpeechHint"), "meaning": request.get("meaningHint")}, "evidence": evidence, "relationGroups": relation_groups,
                                                       "legacyUsage": legacy_usage,
-                                                      "decisionTemplate": "decision-template.json", "reviewTemplate": "relation-review-template.json", "instruction": "校对义项；逐项提交关系及派生词判断。1.3 版用 usageUpdates 补齐缺失的中译、置信度和中文加粗区间；英文区间由脚本预填。缺少来源中译时使用 AI 生成并注明置信度。"})
+                                                      "decisionTemplate": "decision-template.json", "reviewTemplate": "relation-review-template.json", "instruction": "校对义项并核对 Oxford、Longman 对应义项；相同英文释义的证据由脚本自动对齐，其余仅在能确认同义项时用 alignmentEvidenceAdditions 增补，不按站点顺序硬合并；有冲突时标记 needsReview。逐项提交关系及派生词判断。1.3 版用 usageUpdates 补齐缺失的中译、置信度和中文加粗区间；英文区间由脚本预填。缺少来源中译时使用 AI 生成并注明置信度。"})
             candidate_review = review_packet(word, evidence)
             validate_json_schema(candidate_review, HERE / "references" / "relation-review-template.schema.json")
             write_json(log / "relation-review-template.json", candidate_review)
@@ -426,7 +445,7 @@ def advance_word(root: Path, run_id: str, decision: dict | None = None) -> int:
                         (log / "evidence.json").read_bytes()).hexdigest():
                     raise ValueError("判断未绑定本次证据摘要，请复核本次证据后提交 evidenceDigest")
                 validate_decisions(read_json(log / "relation-review-template.json"), answer)
-                existing_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(word)}.json"
+                existing_path = entry_records(root) / f"{stable_word_id(word)}.json"
                 existing = read_json(existing_path) if existing_path.is_file() else None
                 write_json(log / "base-revision.json", {"revision": existing["revision"] if existing else 0, "sha256": hashlib.sha256(existing_path.read_bytes()).hexdigest() if existing else None})
                 entry = build_entry(word, answer, read_json(log / "evidence.json"), existing,
@@ -523,8 +542,12 @@ def advance_word(root: Path, run_id: str, decision: dict | None = None) -> int:
         elif stage == "publishing":
             candidate_path = log / "candidate.json"
             candidate = read_json(candidate_path)
+            if request.get("entrySchemaVersion") == "1.4":
+                from rule_inflections import append_rule_forms, candidates_for_entry
+                if append_rule_forms(candidate, candidates_for_entry(candidate)):
+                    validate_entry(candidate, HERE / "references" / "entry.schema.json")
             out.mkdir(parents=True, exist_ok=True)
-            target = root / "outputs" / "词汇星图" / "entries" / f"{candidate['wordId']}.json"
+            target = entry_records(root) / f"{candidate['wordId']}.json"
             baseline = read_json(log / "base-revision.json")
             with project_lock(root / "logs" / NAME / "dictionary.lock", f"{NAME}:{run_id}"):
                 current_hash = hashlib.sha256(target.read_bytes()).hexdigest() if target.exists() else None
@@ -595,7 +618,7 @@ def _spelling_exclusions(root: Path, words: list[str]) -> set[tuple[str, str]]:
     word_set = set(words)
     excluded = set()
     for word in words:
-        entry_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(word)}.json"
+        entry_path = entry_records(root) / f"{stable_word_id(word)}.json"
         entry = read_json(entry_path)
         forms = [item["text"] for item in entry.get("aliases", [])]
         forms.extend(item["form"]["text"] for item in entry.get("inflections", []))
@@ -606,6 +629,13 @@ def _spelling_exclusions(root: Path, words: list[str]) -> set[tuple[str, str]]:
                 continue
             if normalized in word_set and normalized != word:
                 excluded.add(tuple(sorted((word, normalized))))
+    from utils.scripts.dictionary_spelling import exclusions, is_excluded
+    library = read_all(root / "outputs" / "词汇星图" / "dicts")
+    pair_exclusions, family = exclusions(library)
+    for i, left in enumerate(words):
+        for right in words[i + 1:]:
+            if is_excluded(stable_word_id(left), stable_word_id(right), pair_exclusions, family):
+                excluded.add(tuple(sorted((left, right))))
     return excluded
 
 
@@ -638,7 +668,7 @@ def _relation_candidates(root: Path, rows: list[dict]) -> list[dict]:
         if pair not in spelling_exclusions:
             pair_reasons[pair].add("spelling_similarity")
     for left in words:
-        entry_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(left)}.json"
+        entry_path = entry_records(root) / f"{stable_word_id(left)}.json"
         if entry_path.is_file():
             entry = read_json(entry_path)
             structured = [value["form"]["text"] for value in entry.get("inflections", [])]
@@ -823,7 +853,7 @@ def advance_batch(root: Path, run_id: str, decision: dict | None = None) -> int:
                     continue
                 sides = {}
                 for word in (pair["left"], pair["right"]):
-                    entry = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(word)}.json")
+                    entry = read_json(entry_records(root) / f"{stable_word_id(word)}.json")
                     sides[word] = [{"senseId": sense["senseId"], "partOfSpeech": sense["partOfSpeech"],
                                     "definitionEn": sense["definitionEn"]["text"],
                                     "dictionaryRefs": [ref for ref in sense["definitionEn"]["sourceRefs"]
@@ -866,7 +896,14 @@ def advance_batch(root: Path, run_id: str, decision: dict | None = None) -> int:
                 if choice.get("derivationConfirmed") and (choice["type"] != "family" or not refs):
                     raise ValueError("派生词确认必须是有来源定位的词族关系")
                 accepted.append({**match, "type": choice["type"], "sourceSenseId": choice.get("sourceSenseId"), "targetSenseId": choice.get("targetSenseId"), "derivationConfirmed": bool(choice.get("derivationConfirmed", False)), "verificationStatus": "agent_reviewed", "sourceRefs": refs})
+            family_groups = {row["word"]: read_json(entry_records(root) / stable_word_id(row["word"]))["familyId"] for row in rows}
+            for relation in accepted:
+                if relation["type"] == "family":
+                    a, b = family_groups[relation["left"]], family_groups[relation["right"]]
+                    family_groups = {word: a if group == b else group for word, group in family_groups.items()}
             for pair in candidates:
+                if family_groups[pair["left"]] == family_groups[pair["right"]]:
+                    continue
                 words_pair = (pair["left"], pair["right"])
                 if words_pair in spelling_exclusions or not meets_subsequence_threshold(*words_pair):
                     continue
@@ -876,8 +913,8 @@ def advance_batch(root: Path, run_id: str, decision: dict | None = None) -> int:
             updates = {}
             with project_lock(root / "logs" / NAME / "dictionary.lock", f"{NAME}:{run_id}:relations"):
                 for relation in accepted:
-                    left_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(relation['left'])}.json"
-                    right_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(relation['right'])}.json"
+                    left_path = entry_records(root) / f"{stable_word_id(relation['left'])}.json"
+                    right_path = entry_records(root) / f"{stable_word_id(relation['right'])}.json"
                     left_entry = updates.get(left_path) or read_json(left_path)
                     right_entry = updates.get(right_path) or read_json(right_path)
                     if relation["sourceSenseId"] and relation["sourceSenseId"] not in {s["senseId"] for s in left_entry["senses"]}:
@@ -1030,10 +1067,10 @@ def advance_batch(root: Path, run_id: str, decision: dict | None = None) -> int:
             outside = {}
             known = {row["word"] for row in rows}
             for row in rows:
-                source_entry = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(row['word'])}.json")
+                source_entry = read_json(entry_records(root) / f"{stable_word_id(row['word'])}.json")
                 for candidate in source_entry.get("pendingRelations", []):
                     target_word = candidate["targetLemma"]
-                    if target_word in known or (root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(target_word)}.json").is_file():
+                    if target_word in known or (entry_records(root) / f"{stable_word_id(target_word)}.json").is_file():
                         continue
                     outside[(row["word"], target_word)] = {"fromWord": row["word"], "word": target_word,
                                                               "status": "pending_collection", "sourceRef": candidate["sourceRefs"][0]}
@@ -1067,9 +1104,8 @@ def main() -> int:
     root = args.root.resolve()
     try:
         if args.command in ("start-word", "start-list", "resume"):
-            reconcile_entry_files(root / "outputs" / "词汇星图" / "entries",
-                                  root / "outputs" / "词汇星图" / "dicts",
-                                  lambda value: validate_entry(value, HERE / "references" / "entry.schema.json"))
+            from utils.scripts.dictionary_migration import migrate
+            migrate(root, lambda value: validate_entry(value, HERE / "references" / "entry.schema.json"))
         if args.command == "start-word":
             if not args.word:
                 raise ValueError("start-word 需要 --word")
@@ -1120,13 +1156,13 @@ def main() -> int:
                     validate_json_schema(read_json(out / "gaps.json"), HERE / "references" / "gaps.schema.json")
                     if (out / "entry.md").read_text(encoding="utf-8") != render_entry_markdown(entry, read_json(out / "gaps.json")):
                         raise ValueError("可读词条与 JSON 不一致")
-                    target = root / "outputs" / "词汇星图" / "entries" / f"{entry['wordId']}.json"
+                    target = entry_records(root) / f"{entry['wordId']}.json"
                     verify_raw_confidence(target.read_text(encoding="utf-8"))
                     current = read_json(target)
                     validate_entry(current, HERE / "references" / "entry.schema.json")
                     validate_entry_references(root, current)
                     verify_word_snapshot(entry, current)
-                    if entry.get("schemaVersion") == "1.4":
+                    if (log / "content-review-template.json").is_file():
                         packet = read_json(log / "content-review-template.json")
                         response = read_json(log / "content-review-decision.json")
                         receipt = read_json(log / "content-review-receipt.json")
@@ -1151,12 +1187,12 @@ def main() -> int:
                         child_log, child_out, _, _, child_state = read_run(root, row["runId"])
                         if child_state["status"] != "completed" or not (child_out / "entry.json").is_file():
                             raise ValueError(f"批次单词运行不完整：{row['word']}")
-                        current = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(row['word'])}.json")
+                        current = read_json(entry_records(root) / f"{stable_word_id(row['word'])}.json")
                         validate_entry(current, HERE / "references" / "entry.schema.json")
                         validate_entry_references(root, current)
                         child_entry = read_json(child_out / "entry.json")
                         verify_word_snapshot(child_entry, current)
-                        if child_entry.get("schemaVersion") == "1.4":
+                        if (child_log / "content-review-template.json").is_file():
                             child_packet = read_json(child_log / "content-review-template.json")
                             child_response = read_json(child_log / "content-review-decision.json")
                             child_receipt = read_json(child_log / "content-review-receipt.json")
@@ -1173,7 +1209,7 @@ def main() -> int:
                             if read_json(child_out / "gaps.json").get("contentGaps") != expected_gaps:
                                 raise ValueError("批次单词内容缺口与审查决定不一致")
                     for relation in result["intraListRelations"]:
-                        left = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(relation['left'])}.json")
+                        left = read_json(entry_records(root) / f"{stable_word_id(relation['left'])}.json")
                         if not any(item["type"] == relation["type"] and item["targetWordId"] == stable_word_id(relation["right"])
                                    and item.get("sourceSenseId") == relation.get("sourceSenseId")
                                    and item.get("targetSenseId") == relation.get("targetSenseId") for item in left["relationships"]):
@@ -1183,7 +1219,7 @@ def main() -> int:
                                 raise ValueError("批次拼写相似关系低于子列相似度阈值")
                         if relation["type"] in ("synonym", "near_synonym", "antonym") or (
                                 relation["type"] == "spelling_similar" and relation["verificationStatus"] == "automatic_passed"):
-                            right = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(relation['right'])}.json")
+                            right = read_json(entry_records(root) / f"{stable_word_id(relation['right'])}.json")
                             if not any(item["type"] == relation["type"] and item["targetWordId"] == left["wordId"]
                                        and item.get("sourceSenseId") == relation["targetSenseId"]
                                        and item.get("targetSenseId") == relation["sourceSenseId"]
@@ -1208,9 +1244,12 @@ def main() -> int:
                 return 0
         if args.command in ("start-word", "start-list", "resume", "verify"):
             publish_jsonl(root)
+            if args.command in ("start-word", "start-list", "resume"):
+                from utils.scripts.dictionary_spelling import sync
+                sync(root)
             if args.command == "verify":
                 current = read_all(root / "outputs" / "词汇星图" / "dicts")
-                for path in (root / "outputs" / "词汇星图" / "entries").glob("*.json"):
+                for path in (entry_records(root)).glob("*.json"):
                     entry = read_json(path)
                     if current.get(entry["wordId"]) != entry:
                         raise ValueError(f"JSONL 词条与运行词条不一致：{entry['wordId']}")

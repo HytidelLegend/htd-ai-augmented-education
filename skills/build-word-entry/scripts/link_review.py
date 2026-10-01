@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 
 from entry import entry_json_text, stable_word_id, validate_entry, validate_entry_references
+from utils.scripts.dictionary_records import entries as entry_records
 from utils.scripts.file_transaction import project_lock
 from utils.scripts.structured_io import read_json, write_text_transaction
 from utils.scripts.timestamp import iso_timestamp
@@ -15,7 +16,7 @@ def _digest(path: Path) -> str:
 
 
 def pending_links(root: Path, word: str) -> list[dict]:
-    entries_dir = root / "outputs" / "词汇星图" / "entries"
+    entries_dir = entry_records(root)
     packet = []
     for source_path in entries_dir.glob("*.json"):
         source = read_json(source_path)
@@ -54,7 +55,7 @@ def apply_links(root: Path, run_id: str, packet: list[dict], response: dict, sch
     if len(actual) != len(set(actual)) or set(actual) != expected:
         raise ValueError("链接判断必须逐项覆盖审查包")
     packet_by_key = {(item["sourceWord"], item["relationshipId"]): item for item in packet}
-    entries_dir = root / "outputs" / "词汇星图" / "entries"
+    entries_dir = entry_records(root)
     updates: dict[Path, dict] = {}
     with project_lock(root / "logs" / "build-word-entry" / "dictionary.lock", f"build-word-entry:{run_id}:links"):
         for choice in choices:

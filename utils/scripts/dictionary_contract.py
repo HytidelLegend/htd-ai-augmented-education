@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 
 from utils.scripts.structured_io import write_text_atomic
 
@@ -52,6 +52,9 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "lemma": {"type": ["string", "null"]},
             "pinned": {"type": "boolean"}})},
         "activeTabId": {"type": "string", "minLength": 1},
+        "study": obj({"openPlanIds": {"type": "array", "uniqueItems": True,
+                                       "items": {"type": "string", "pattern": "^plan_[0-9a-f]{32}$"}},
+                      "activeTabId": {"type": "string", "minLength": 1}}),
         "split": obj({"enabled": {"type": "boolean"},
                       "leftWidthPercent": {"type": "number", "minimum": 25, "maximum": 75}}),
         "graph": obj({
@@ -83,14 +86,17 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "ui": obj({k: COLOR for k in ("background", "surface", "surfaceRaised", "text", "mutedText",
                                         "border", "hover", "selected", "disabled", "error", "success")}),
         "learning": obj({k: COLOR for k in ("unfamiliar", "seen", "familiar", "outsideStage")}),
-        "graph": obj({"family": COLOR, "relations": obj({k: COLOR for k in
+        "graph": obj({"initializeOnEnter": {"type": "boolean"}, "family": COLOR, "relations": obj({k: COLOR for k in
                           ("synonym", "near_synonym", "antonym", "spelling_similar")}),
-                      "physics": obj({"springStrength": {"type": "number", "minimum": 0, "maximum": 1},
+                       "physics": obj({"springStrength": {"type": "number", "minimum": 0, "maximum": 1},
                                       "repulsionStrength": {"type": "number", "minimum": 0, "maximum": 5000},
+                                        "familyNonMemberRepulsionStrength": {"type": "number", "minimum": 0, "maximum": 5000},
                                       "damping": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
-                                      "restLength": {"type": "number", "minimum": 30, "maximum": 500}})}),
+                                      "restLength": {"type": "number", "minimum": 30, "maximum": 500},
+                                      "familyNodeGap": {"type": "number", "minimum": 0, "maximum": 64}})}),
         "controls": obj({k: COLOR for k in ("activeText", "inactiveText", "focus", "sliderTrack")}),
-        "favorites": obj({"star": COLOR})})},
+        "favorites": obj({"star": COLOR}),
+        "study": obj({"wordsPerPage": {"type": "integer", "minimum": 1, "maximum": 100}})})},
 }
 
 DEFAULT_CONFIG = {
@@ -101,18 +107,29 @@ DEFAULT_CONFIG = {
            "error": "#B43E3E", "success": "#22744D"},
     "learning": {"unfamiliar": "#F5D7D4", "seen": "#D7E9F5", "familiar": "#D8EEDB",
                  "outsideStage": "#D9DDDB"},
-    "graph": {"family": "#8B5CF6", "relations": {"synonym": "#16A34A",
+    "graph": {"initializeOnEnter": True, "family": "#8B5CF6", "relations": {"synonym": "#16A34A",
                 "near_synonym": "#0EA5E9", "antonym": "#EF4444", "spelling_similar": "#F59E0B"},
-              "physics": {"springStrength": 0.08, "repulsionStrength": 900,
-                          "damping": 0.82, "restLength": 150}},
+               "physics": {"springStrength": 0.08, "repulsionStrength": 900,
+                           "familyNonMemberRepulsionStrength": 1200,
+                          "damping": 0.82, "restLength": 150, "familyNodeGap": 8}},
     "controls": {"activeText": "#173A2B", "inactiveText": "#68746E", "focus": "#1B6C53",
                  "sliderTrack": "#A9BEB1"},
     "favorites": {"star": "#F2B524"},
+    "study": {"wordsPerPage": 10},
 }
 
 
 def validate(kind: str, value: Any) -> None:
-    Draft202012Validator(SCHEMAS[kind]).validate(value)
+    schema = SCHEMAS[kind]
+    if kind == "dictionary-project-v1.schema.json" and isinstance(value, dict) and isinstance(value.get("words"), list):
+        # jsonschema compares object items pairwise for uniqueItems. Large exam
+        # word lists make that quadratic, so check the same constraint first.
+        words = value["words"]
+        if len({json.dumps(item, ensure_ascii=False, sort_keys=True) for item in words}) != len(words):
+            raise ValidationError("项目词表包含重复项")
+        schema = {**schema, "properties": {**schema["properties"], "words": {
+            **schema["properties"]["words"], "uniqueItems": False}}}
+    Draft202012Validator(schema).validate(value)
 
 
 def default_state(kind: str, now: str) -> dict[str, Any]:
@@ -122,7 +139,8 @@ def default_state(kind: str, now: str) -> dict[str, Any]:
     if kind == "ui":
         return {**common, "activeProjectId": "default", "activeStageId": "all", "tabs": [
             {"tabId": "graph", "kind": "graph", "wordId": None, "lemma": None, "pinned": True}],
-            "activeTabId": "graph", "split": {"enabled": True, "leftWidthPercent": 52},
+            "activeTabId": "graph", "study": {"openPlanIds": [], "activeTabId": "home"},
+            "split": {"enabled": True, "leftWidthPercent": 52},
             "graph": {"zoomPercent": 100, "positions": {}, "visibleRelations": {
                 key: True for key in ("family", "synonym", "near_synonym", "antonym", "spelling_similar")}}}
     raise ValueError(kind)

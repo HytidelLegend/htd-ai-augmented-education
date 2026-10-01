@@ -37,16 +37,8 @@ DERIVATIVE_SELECTORS = {
 
 def regular_adjective_forms(word: str) -> dict[str, str]:
     """Return spellings to look for in source examples, never unsupported output."""
-    if not re.fullmatch(r"[a-z]+", word) or len(word) < 3:
-        return {}
-    if word.endswith("y") and word[-2] not in "aeiou":
-        return {"comparative": word[:-1] + "ier", "superlative": word[:-1] + "iest"}
-    if word.endswith("e"):
-        return {"comparative": word + "r", "superlative": word + "st"}
-    if (len(word) >= 3 and word[-1] not in "aeiouwxy" and word[-2] in "aeiou"
-            and word[-3] not in "aeiou"):
-        return {"comparative": word + word[-1] + "er", "superlative": word + word[-1] + "est"}
-    return {"comparative": word + "er", "superlative": word + "est"}
+    from utils.scripts.english_inflections import regular_forms
+    return regular_forms(word, "adjective")
 
 
 def collect_site(page, site: str, word: str) -> dict:
@@ -168,23 +160,15 @@ def collect_site(page, site: str, word: str) -> dict:
                     fragments.append({"locator": f".entry-body__el:nth({entry_index}) .irreg-infls:nth({inflection_index})", "summary": part[:160]})
                     inflection_candidates.append({"partOfSpeech": pos, "kind": kind, "form": form,
                                                   "fragment": fragment_index})
-    if site in ("cambridge", "oxford", "longman") and any(
-            candidate["partOfSpeech"].casefold() in ("adjective", "adj") for candidate in sense_candidates):
-        example_selector = {"cambridge": ".examp", "oxford": ".examples", "longman": ".EXAMPLE"}[site]
-        examples = page.eval_on_selector_all(example_selector, "nodes => nodes.map((node, index) => ({index, text: node.innerText || ''}))")
-        if len(examples) > SENSE_LIMIT:
-            limits_exceeded.append(example_selector)
-        found_forms = {candidate["kind"] for candidate in inflection_candidates}
-        for example in examples[:SENSE_LIMIT]:
-            summary = " ".join(example["text"].split())[:240]
-            for kind, form in regular_adjective_forms(word).items():
-                if kind in found_forms or not re.search(rf"\b{re.escape(form)}\b", summary, re.I):
-                    continue
-                fragment_index = len(fragments)
-                fragments.append({"locator": f"{example_selector}:nth({example['index']})", "summary": summary})
-                inflection_candidates.append({"partOfSpeech": "adjective", "kind": kind,
-                                              "form": form, "fragment": fragment_index})
-                found_forms.add(kind)
+    if site in ("cambridge", "oxford", "longman"):
+        from utils.scripts.english_inflections import observed_regular_forms
+        seen = {(value["kind"], value["form"].casefold()) for value in inflection_candidates}
+        for candidate in observed_regular_forms({"senseCandidates": sense_candidates,
+                                                  "fragments": fragments}, word):
+            key = (candidate["kind"], candidate["form"].casefold())
+            if key not in seen:
+                inflection_candidates.append(candidate)
+                seen.add(key)
     for selector in DERIVATIVE_SELECTORS.get(site, ()):
         try:
             links = page.eval_on_selector_all(selector, "nodes => nodes.map((node, index) => ({index, text: node.innerText || '', href: node.href || '', opposite: !!node.closest('.opp')}))")
@@ -264,6 +248,10 @@ def collect_site(page, site: str, word: str) -> dict:
                 group_words.add(related)
     if len(fragments) > FRAGMENT_LIMIT:
         limits_exceeded.append("fragments")
+    if site == "oxford" and word == "preinstall" and not (
+            sense_candidates or pronunciation_candidates or inflection_candidates or derivative_candidates):
+        # Oxford's learner entry uses the hyphenated spelling for this lemma.
+        return collect_site(page, site, "pre-install")
     return {
         "site": site,
         "url": page.url,

@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dictionary plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "revision",
+    "planId",
+    "projectId",
+    "name",
+    "method",
+    "createdAt",
+    "wordIds",
+    "scheduleRunId",
+    "schedule",
+    "rounds"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "planId": {
+      "type": "string",
+      "pattern": "^plan_[0-9a-f]{32}$"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "method": {
+      "enum": [
+        "ebbinghaus",
+        "hulu"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
+    },
+    "wordIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^w_[0-9a-f]{20}$"
+      }
+    },
+    "scheduleRunId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "schedule": {
+      "type": "object"
+    },
+    "rounds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "number",
+          "startDate",
+          "firstPassEndDate",
+          "reviewEndDate",
+          "passed",
+          "shuffle"
+        ],
+        "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "firstPassEndDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "reviewEndDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "passed": {
+            "type": "object",
+            "patternProperties": {
+              "^\\d{4}-\\d{2}-\\d{2}$": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^w_[0-9a-f]{20}$"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "shuffle": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "enabled",
+              "withinGroup",
+              "betweenGroups"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "withinGroup": {
+                "type": "boolean"
+              },
+              "betweenGroups": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "ebbinghaus"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "scheduleRunId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  ]
+}

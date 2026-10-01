@@ -11,6 +11,7 @@ import sys
 import threading
 import tempfile
 import uuid
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -20,8 +21,9 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from utils.scripts.dictionary_store import ConflictError, DictionaryStore, normalize_lemma
+from utils.scripts.dictionary_plans import PlanStore, plan_progress, round_complete, visible_order
 from utils.scripts.structured_io import write_text_atomic
-from utils.scripts.timestamp import unique_filename_timestamp
+from utils.scripts.timestamp import iso_timestamp, unique_filename_timestamp
 
 RUN_ID = re.compile(r"^\d{8}T\d{6}(?:_\d+)?$")
 
@@ -178,6 +180,8 @@ def cached_audio(store: DictionaryStore, lemma: str, variety: str) -> tuple[byte
 
 
 def make_handler(store: DictionaryStore, runs: RunManager):
+    plans = PlanStore(store.root, store)
+    write_lock = threading.RLock()
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status: int, value: dict | list, content_type: str = "application/json; charset=utf-8") -> None:
             payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -205,23 +209,112 @@ def make_handler(store: DictionaryStore, runs: RunManager):
             parsed = urlparse(self.path)
             path = parsed.path
             query = parse_qs(parsed.query)
-            body = self._body() if self.command in ("PUT", "POST", "PATCH") else None
+            body = self._body() if self.command in ("PUT", "POST", "PATCH", "DELETE") else None
             if self.command == "GET" and path == "/health":
-                result = {"status": "ok", "entryCount": len(store.entries())}
+                result = {"status": "ok", "entryCount": store.entry_count()}
             elif self.command == "GET" and path == "/api/bootstrap":
                 result = store.bootstrap()
+            elif self.command == "GET" and path == "/api/config":
+                result = store.config_snapshot()
+            elif self.command == "PUT" and path == "/api/config":
+                result = store.save_config(body["config"], body["expectedRevision"])
             elif self.command == "GET" and path == "/api/projects":
                 result = store.projects()
+            elif self.command == "GET" and path == "/api/plans":
+                result = [{**plan, "progress": plan_progress(plan),
+                           "roundComplete": round_complete(plan, plan["rounds"][-1], page_size=store.config["study"]["wordsPerPage"])}
+                          for plan in plans.list()]
+            elif self.command == "GET" and path == "/api/today":
+                result = {"day": iso_timestamp()[:10]}
+            elif self.command == "POST" and path == "/api/plans":
+                plan = plans.create(body)
+                result = {**plan, "progress": plan_progress(plan),
+                          "roundComplete": round_complete(plan, plan["rounds"][-1], page_size=store.config["study"]["wordsPerPage"])}
+            elif self.command == "GET" and path.startswith("/api/plans/date/"):
+                selected_day = path.split("/")[-1]
+                result = []
+                for plan in plans.list():
+                    for current_round in plan["rounds"]:
+                        index = (date.fromisoformat(selected_day) - date.fromisoformat(current_round["startDate"])).days
+                        if 0 <= index < len(plan["schedule"]["days"]) and selected_day <= current_round["reviewEndDate"]:
+                            schedule_day = plan["schedule"]["days"][index]
+                            result.append({"planId": plan["planId"], "name": plan["name"], "method": plan["method"],
+                                           "projectId": plan["projectId"], "round": current_round["number"],
+                                           "wordIds": [plan["wordIds"][number - 1] for number in schedule_day["item_ids"]],
+                                           "newWordIds": [plan["wordIds"][number - 1] for number in schedule_day["new_item_ids"]],
+                                           "reviewWordIds": [plan["wordIds"][number - 1] for number in schedule_day["review_item_ids"]]})
+            elif self.command == "GET" and re.fullmatch(r"/api/plans/plan_[0-9a-f]{32}/day/\d{4}-\d{2}-\d{2}", path):
+                parts = path.split("/")
+                plan = plans.get(parts[3])
+                page_size = int(query.get("pageSize", [store.config["study"]["wordsPerPage"]])[0])
+                if not 1 <= page_size <= 100:
+                    raise ValueError("每组单词数无效")
+                day = parts[5]
+                current_round = plan["rounds"][-1]
+                if not current_round["startDate"] <= day <= current_round["reviewEndDate"]:
+                    raise ValueError("日期不属于当前轮")
+                result = {"day": day, "wordIds": visible_order(plan, current_round, day, page_size),
+                          "passedWordIds": current_round["passed"].get(day, []),
+                          "newWordIds": [plan["wordIds"][number - 1] for number in plan["schedule"]["days"][(date.fromisoformat(day) - date.fromisoformat(current_round["startDate"])).days]["new_item_ids"]],
+                          "reviewWordIds": [plan["wordIds"][number - 1] for number in plan["schedule"]["days"][(date.fromisoformat(day) - date.fromisoformat(current_round["startDate"])).days]["review_item_ids"]]}
+            elif self.command == "GET" and path.startswith("/api/plans/"):
+                plan = plans.get(path.split("/")[-1])
+                result = {**plan, "progress": plan_progress(plan),
+                          "roundComplete": round_complete(plan, plan["rounds"][-1], page_size=store.config["study"]["wordsPerPage"])}
+            elif self.command == "PATCH" and path.startswith("/api/plans/"):
+                plan = plans.update(path.split("/")[-1], body["expectedRevision"], body["action"], body)
+                result = {**plan, "progress": plan_progress(plan),
+                          "roundComplete": round_complete(plan, plan["rounds"][-1], page_size=store.config["study"]["wordsPerPage"])}
+            elif self.command == "DELETE" and re.fullmatch(r"/api/plans/plan_[0-9a-f]{32}", path):
+                plans.delete(path.split("/")[-1], body["expectedRevision"])
+                result = {"deleted": True}
             elif self.command == "POST" and path == "/api/projects":
                 result = store.create_project(body["name"], body.get("content", ""), body.get("format", "text"))
-            elif self.command == "PUT" and path.startswith("/api/projects/"):
-                result = store.rename_project(path.split("/")[-1], body["name"], body["expectedRevision"])
+            elif self.command == "PUT" and re.fullmatch(r"/api/projects/[a-z0-9_-]+", path):
+                project_id = path.split("/")[-1]
+                if "content" not in body:
+                    result = store.rename_project(project_id, body["name"], body["expectedRevision"])
+                else:
+                    old = store.project(project_id)
+                    rows = store.project_words(body["content"])
+                    affected = [plan for plan in plans.list() if plan["projectId"] == project_id]
+                    changed = {row["wordId"] for row in old["words"]} != {row["wordId"] for row in rows}
+                    if old["revision"] != body["expectedRevision"]:
+                        raise ConflictError("项目版本冲突")
+                    if changed and affected and type(body.get("replan")) is not bool:
+                        raise ConflictError("词表变化须选择是否重新生成现有背诵计划")
+                    prepared = ([plans.prepare_for_project_words(plan, [row["wordId"] for row in rows])
+                                 for plan in affected] if changed and body.get("replan") else [])
+                    result = store.update_project(project_id, body["name"], body["content"], body["expectedRevision"])
+                    try:
+                        for plan in prepared:
+                            plans._save(plan)
+                    except Exception:
+                        write_text_atomic(store._project_path(project_id), json.dumps(old, ensure_ascii=False, indent=2) + "\n")
+                        for plan in affected:
+                            if body.get("replan"):
+                                plans._save(plan)
+                        raise
+            elif self.command == "DELETE" and re.fullmatch(r"/api/projects/[a-z0-9_-]+", path):
+                project_id = path.split("/")[-1]
+                if store.project(project_id)["revision"] != body["expectedRevision"]:
+                    raise ConflictError("项目版本冲突")
+                if any(plan["projectId"] == project_id for plan in plans.list()):
+                    raise ConflictError("请先处理此项目关联的背诵计划")
+                current = store.state("ui")
+                if current["activeProjectId"] == project_id:
+                    replacement = next((project["projectId"] for project in store.projects() if project["projectId"] != project_id), None)
+                    if replacement is None:
+                        raise ValueError("至少保留一个项目")
+                    store.save_state("ui", {**current, "activeProjectId": replacement, "activeTabId": "graph"}, current["revision"])
+                store.delete_project(project_id, body["expectedRevision"])
+                result = {"deleted": True}
             elif self.command == "GET" and path == "/api/dictionary/search":
-                result = store.search(query.get("q", [""])[0])
+                result = store.search(query.get("q", [""])[0], query.get("project", [None])[0])
             elif self.command == "GET" and path.startswith("/api/projects/") and path.endswith("/learning"):
                 result = store.state("learning", path.split("/")[3])
             elif self.command == "GET" and path == "/api/words":
-                result = store.word_summaries(query.get("stage", ["all"])[0])
+                result = store.word_summaries(query.get("stage", ["all"])[0], query.get("project", [None])[0])
             elif self.command == "GET" and path.startswith("/api/words/"):
                 result = store.word_page(path.split("/")[-1], query.get("stage", ["all"])[0])
             elif self.command == "GET" and path == "/api/candidates":
@@ -288,9 +381,16 @@ def make_handler(store: DictionaryStore, runs: RunManager):
         def do_PUT(self) -> None:
             self._safe_dispatch()
 
+        def do_DELETE(self) -> None:
+            self._safe_dispatch()
+
         def _safe_dispatch(self) -> None:
             try:
-                self._dispatch()
+                if self.command in ("PUT", "POST", "PATCH", "DELETE"):
+                    with write_lock:
+                        self._dispatch()
+                else:
+                    self._dispatch()
             except ConflictError as exc:
                 self._send(409, {"error": str(exc)})
             except FileNotFoundError as exc:
@@ -305,6 +405,9 @@ def make_handler(store: DictionaryStore, runs: RunManager):
 
 def create_server(root: Path, port: int = 5186) -> ThreadingHTTPServer:
     store = DictionaryStore(root)
+    store.migrate_entries()
+    from utils.scripts.dictionary_spelling import sync
+    sync(root)
     return ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, RunManager(root)))
 
 

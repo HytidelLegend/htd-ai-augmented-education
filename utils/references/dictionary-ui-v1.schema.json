@@ -70,6 +70,28 @@
       "type": "string",
       "minLength": 1
     },
+    "study": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "openPlanIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^plan_[0-9a-f]{32}$"
+          }
+        },
+        "activeTabId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "openPlanIds",
+        "activeTabId"
+      ]
+    },
     "split": {
       "type": "object",
       "additionalProperties": false,
@@ -163,6 +185,7 @@
     "activeStageId",
     "tabs",
     "activeTabId",
+    "study",
     "split",
     "graph"
   ]

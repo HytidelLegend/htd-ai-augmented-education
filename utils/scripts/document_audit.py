@@ -80,18 +80,123 @@ def version_ok(version: str, spec: str) -> bool:
     except Exception:
         return True
 
+def prose_lines(text: str):
+    """Yield numbered Markdown lines outside fenced code blocks."""
+    fence = None
+    for number, line in enumerate(text.splitlines(), 1):
+        marker = re.match(r'^\s*(`{3,}|~{3,})(.*)$', line)
+        if marker:
+            ticks = marker.group(1)
+            if fence is None:
+                fence = ticks
+            elif ticks[0] == fence[0] and len(ticks) >= len(fence) and not marker.group(2).strip():
+                fence = None
+            continue
+        if fence is not None:
+            continue
+        yield number, line
+
+
+def inline_code(text: str):
+    """Yield inline code without consuming fenced examples or crossing lines."""
+    for _, line in prose_lines(text):
+        for match in re.finditer(r'(?<!`)(`+)([^`\n]+)\1(?!`)', line):
+            yield match.group(2).strip(), line
+
+
+def document_reference_findings(root: Path, docs: list[Path]) -> list[dict[str, Any]]:
+    """Check static references only; runtime names do not imply existing files."""
+    findings = []
+    app_contexts: dict[Path, Path] = {}
+    for manifest_path in (root / 'applications').glob('*/application-audit.json'):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        documents = manifest.get('documents', {}) if isinstance(manifest, dict) else {}
+        if isinstance(documents, dict):
+            for reference in documents.values():
+                if isinstance(reference, str):
+                    app_contexts[(root / reference).resolve()] = manifest_path.parent
+    static_roots = ({'applications', 'docs', 'skills', 'utils', 'runtime', '.claude-plugin'}
+                    | {p.name for p in root.iterdir() if p.is_dir()}) - EXCLUDED
+    for doc in docs:
+        seen = set()
+        text = doc.read_text(encoding='utf-8')
+        skill_contexts = {}
+        skill_context = None
+        heading_level = 0
+        for number, line in prose_lines(text):
+            heading = re.match(r'^(#{1,6})\s+(.+?)\s*$', line)
+            if heading:
+                level, name = len(heading.group(1)), heading.group(2).strip('`')
+                if level <= heading_level:
+                    skill_context = None
+                if (root / 'skills' / name / 'SKILL.md').is_file():
+                    skill_context, heading_level = root / 'skills' / name, level
+            if skill_context:
+                skill_contexts[number] = skill_context
+        for number, line in prose_lines(text):
+            for match in re.finditer(r'(?<!`)(`+)([^`\n]+)\1(?!`)', line):
+                raw = match.group(2).strip()
+                _check_reference(root, doc, raw, line, match.start(), match.end(),
+                                 skill_contexts.get(number), app_contexts.get(doc.resolve()),
+                                 static_roots, seen, findings)
+    return findings
+
+
+def _check_reference(root, doc, raw, line, start, end, skill_context, app_context,
+                     static_roots, seen, findings):
+    token = raw.replace('\\', '/')
+    if not re.fullmatch(r'[\w./*?\[\]-]+', token):
+        return
+    parts = Path(token).parts
+    if not parts or token.startswith('/'):
+        return
+    first = parts[0]
+    if first in {'outputs', 'logs', 'tmp'}:
+        return
+    prefix, suffix = line[:start], line[end:]
+    if re.search(r'(?:旧|历史|迁移输入|不再维护)\s*$', prefix) and re.search(
+        r'迁移|清理|删除|不再|归档', re.split(r'[。；;]', suffix, 1)[0]
+    ):
+        return
+    qualified = first in static_roots or token.startswith(('./', '../'))
+    # Bare data filenames and unqualified subpaths can be runtime artifacts.
+    if not qualified and not token.endswith(('.md', '.py', '.yaml', '.yml')):
+        return
+    # Bare Markdown names also describe generic contracts or tool outputs.
+    if not qualified and '/' not in token and token.endswith('.md') and token not in {
+        'AGENTS.md', 'CODE_OF_CONDUCT.md', 'SOURCE_OF_TRUTH.md', 'README.md'
+    }:
+        return
+    explicit_relative = token.startswith(('./', '../'))
+    bases = [doc.parent] if explicit_relative else ([root] if first in static_roots else [doc.parent, root])
+    if not explicit_relative and first not in static_roots and app_context:
+        bases.insert(0, app_context)
+    if not explicit_relative and first not in static_roots and skill_context:
+        bases.insert(0, skill_context)
+    exists = False
+    for base in bases:
+        candidate = (base / token).resolve()
+        if not candidate.is_relative_to(root.resolve()):
+            continue
+        if any(ch in token for ch in '*?['):
+            exists = any(p.resolve().is_relative_to(root.resolve()) for p in base.glob(token))
+        else:
+            exists = candidate.exists()
+        if exists:
+            break
+    if not exists and token not in seen:
+        seen.add(token)
+        add(findings, 'missing_document_reference', rel(root, doc),
+            '更新失效的项目路径引用', token, '现有路径', [rel(root, doc)])
+
+
 def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     findings=[]; facts={}
     docs=discover_docs(root); facts['documents']={rel(root,p):sha(p) for p in docs}
-    # Check explicit repository-relative paths in inline code spans.
-    for p in docs:
-        text=p.read_text(encoding='utf-8')
-        for token in re.findall(r'`([^`]+)`', text):
-            token=token.strip().replace('\\','/')
-            if not token or token.startswith(('http://','https://','<','python ','runtime/.venv/Scripts/python.exe ')) or any(ch.isspace() for ch in token) or '<' in token or token in {'SKILL.md','README.md','project.json','package.json'}: continue
-            candidate=root/Path(token)
-            if ('/' in token or token.endswith(('.md','.json','.py','.txt','.yaml','.yml'))) and not candidate.exists():
-                add(findings,'missing_document_reference',rel(root,p),'更新失效的项目路径引用',token,'现有路径',[rel(root,p)],'deterministic')
+    findings.extend(document_reference_findings(root, docs))
     version=(root/'VERSION').read_text(encoding='utf-8').strip() if (root/'VERSION').is_file() else None
     marketplace=root/'.claude-plugin/marketplace.json'; plugin=root/'.claude-plugin/plugin.json'
     try: market=json.loads(marketplace.read_text(encoding='utf-8'))
@@ -174,7 +279,7 @@ def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str,
     application_findings, applications = audit_applications(root)
     findings.extend(application_findings)
     facts.update({'documents':facts['documents'],'version':version,'marketplace_version':market_version,'registered_skills':sorted(registered),'active_skills':sorted(active),'skill_metadata':metadata,'documented_categories':documented_categories,'documented_scenarios':documented,'requirements':req,'imports':sorted(third),'installed':installed,'env_keys':env_key_map,'applications': applications})
-    cache={'schema_version':'1.0','checker_version':'1.1','facts':facts,'documents':facts['documents'],'finding_count':len(findings)}
+    cache={'schema_version':'1.0','checker_version':'1.2','facts':facts,'documents':facts['documents'],'finding_count':len(findings)}
     return {'schema_version':'1.0','findings':findings,'summary':{'checked_documents':len(docs),'findings':len(findings),'status':'differences_found' if findings else 'consistent'}}, cache
 
 

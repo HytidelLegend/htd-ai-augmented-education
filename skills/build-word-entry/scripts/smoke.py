@@ -17,10 +17,31 @@ from adapters import regular_adjective_forms
 from entry import build_entry, item, parse_word_list, stable_word_id
 from review import candidate_id
 from content_review import apply as apply_content_review
+from utils.scripts.dictionary_records import entries as entry_records
 from utils.scripts.structured_io import read_json, write_json
 from utils.scripts.dictionary_jsonl import read_all, render_entry_line, upsert
 from utils.scripts.timestamp import iso_timestamp
+from utils.scripts.english_inflections import observed_regular_forms, regular_forms, rule_derived_forms
 from utils.scripts.word_similarity import iter_similar_pairs, meets_subsequence_threshold, subsequence_similarity
+
+assert regular_forms("battery", "noun [ C ]")["plural"] == "batteries"
+assert regular_forms("tip", "verb")["past tense"] == "tipped"
+assert regular_forms("wrap", "verb")["present participle"] == "wrapping"
+assert regular_forms("inactive", "adjective")["comparative"] == "inactiver"
+assert regular_forms("handily", "adverb") == {}
+assert rule_derived_forms("paycheck", "noun [ C ]")["plural"] == ("paychecks", "noun_regular_s")
+assert rule_derived_forms("child", "noun [ C ]") == {}
+assert rule_derived_forms("policeman", "noun [ C ]") == {}
+assert rule_derived_forms("quiz", "noun [ C ]")["plural"][0] == "quizzes"
+assert rule_derived_forms("sustainability", "noun [ U ]") == {}
+assert "past tense" not in rule_derived_forms("overeat", "verb [ I ]")
+assert rule_derived_forms("overeat", "verb [ I ]")["present participle"][0] == "overeating"
+assert "third person singular" not in rule_derived_forms("have", "verb")
+assert "present participle" not in rule_derived_forms("open", "verb")
+assert rule_derived_forms("open", "verb")["third person singular"][0] == "opens"
+assert observed_regular_forms({"fragments": [{"locator": ".EXAMPLE:nth(0)", "summary": "She recollected it."}],
+                               "senseCandidates": [{"partOfSpeech": "verb", "exampleFragment": None}]},
+                              "recollect")[0]["form"] == "recollected"
 
 
 def evidence(word: str):
@@ -73,6 +94,11 @@ with tempfile.TemporaryDirectory() as directory:
     aligned_entry = build_entry("bank", aligned_decision, [*evidence("bank"), aligned_source])
     assert {value["site"] for value in aligned_entry["senses"][0]["sourceOrders"]} == {"oxford"}
     assert {value["site"] for value in aligned_entry["senses"][0]["definitionEn"]["sourceRefs"]} == {"cambridge"}
+    write_json(log / "decision-template.json", decision())
+    reviewed = cli.expand_decision(log, {"edits": [], "alignmentEvidenceAdditions": [
+        {"senseIndex": 0, "source": 1, "fragment": 0}]})
+    reviewed_entry = build_entry("bank", reviewed, [*evidence("bank"), aligned_source])
+    assert {value["site"] for value in reviewed_entry["senses"][0]["definitionEn"]["sourceRefs"]} == {"cambridge", "oxford"}
     write_json(log / "evidence.json", evidence("bank"))
     assert cli.advance_word(root, word_run) == 3
     assert cli.read_run(root, word_run)[-1]["status"] == "paused_agent_decision"
@@ -119,11 +145,17 @@ with tempfile.TemporaryDirectory() as directory:
     assert next(form for form in build_entry("go", go_decision, irregular_source)["inflections"] if form["form"]["text"] == "went")["irregular"]
     fallback = [{**evidence("bank")[0], "site": "oxford", "senseCandidates": [{"partOfSpeech": "noun", "definitionEn": "edge of a river", "definitionZh": "", "example": "", "fragment": 0}]}]
     assert cli.decision_template(fallback)["senses"][0]["definitionEn"] == "edge of a river"
+    shared = evidence("bank")
+    shared[0]["senseCandidates"] = [{"partOfSpeech": "noun", "definitionEn": "a useful example", "definitionZh": "测试含义", "example": "", "fragment": 0}]
+    shared.append({**shared[0], "site": "oxford", "senseCandidates": [{"partOfSpeech": "noun", "definitionEn": "a useful example", "definitionZh": "", "example": "", "fragment": 0}]})
+    aligned = cli.decision_template(shared)["senses"][0]
+    assert aligned["alignmentEvidence"] == [{"source": 1, "fragment": 0}]
+    assert aligned["enEvidence"] == [{"source": 0, "fragment": 0}, {"source": 1, "fragment": 0}]
     for command in ("status", "verify", "deliver"):
         sys.argv = ["cli.py", command, "--root", str(root), "--run-id", word_run]
         with contextlib.redirect_stdout(io.StringIO()):
             assert cli.main() == 0
-    canonical_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('bank')}.json"
+    canonical_path = entry_records(root) / f"{stable_word_id('bank')}.json"
     intact = canonical_path.read_text(encoding="utf-8")
     altered = read_json(canonical_path)
     altered["senses"][0]["definitionZh"]["text"] = "被篡改"
@@ -213,8 +245,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert cli.read_run(root, clever_run)[-1]["status"] == "paused_relation_review"
     incoming = read_json(cli.paths(root, clever_run)[0] / "incoming-link-review.json")
     assert [(value["sourceWord"], value["targetWord"]) for value in incoming] == [("bright", "clever")]
-    bright_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('bright')}.json"
-    clever_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('clever')}.json"
+    bright_path = entry_records(root) / f"{stable_word_id('bright')}.json"
+    clever_path = entry_records(root) / f"{stable_word_id('clever')}.json"
     bright_before_link = read_json(bright_path)
     original_relation_id = bright_before_link["relationships"][0]["relationshipId"]
     assert cli.advance_word(root, clever_run, {"links": []}) == 3
@@ -271,8 +303,8 @@ with tempfile.TemporaryDirectory() as directory:
     result = read_json(cli.paths(root, batch_run)[1] / "batch-result.json")
     assert result["coverage"]["completed"] == result["coverage"]["total"] == 2
     assert result["coverage"]["sites"]["cambridge"] == 2
-    bank = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('bank')}.json")
-    banker = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('banker')}.json")
+    bank = read_json(entry_records(root) / f"{stable_word_id('bank')}.json")
+    banker = read_json(entry_records(root) / f"{stable_word_id('banker')}.json")
     assert any(r["intraList"] for r in bank["relationships"])
     assert len(bank["senses"]) == 1
     assert bank["familyId"] == banker["familyId"]
@@ -288,7 +320,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert repeated_banker["pendingRelations"] == banker["pendingRelations"]
     assert result["words"][0]["sourceLines"] == [1, 3]
     assert result["pendingExternalCandidates"][0]["word"] == "financier"
-    assert '"confidence": 1.00' in (root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('bank')}.json").read_text(encoding="utf-8")
+    assert '"confidence": 1.00' in (entry_records(root) / f"{stable_word_id('bank')}.json").read_text(encoding="utf-8")
     for command in ("status", "verify", "deliver"):
         sys.argv = ["cli.py", command, "--root", str(root), "--run-id", batch_run]
         with contextlib.redirect_stdout(io.StringIO()):
@@ -296,8 +328,8 @@ with tempfile.TemporaryDirectory() as directory:
     relation_run = cli.new_run(root, {"kind": "batch", "inlineText": "banker\nfinancier"})
     assert cli.advance_batch(root, relation_run) == 3
     assert cli.read_run(root, relation_run)[-1]["status"] == "paused_relation_review"
-    banker_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('banker')}.json"
-    financier_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('financier')}.json"
+    banker_path = entry_records(root) / f"{stable_word_id('banker')}.json"
+    financier_path = entry_records(root) / f"{stable_word_id('financier')}.json"
     assert read_json(banker_path)["pendingRelations"][0]["status"] == "pending_relation_review"
     review_packet = read_json(cli.paths(root, relation_run)[0] / "relation-review-packet.json")
     pair = next(value for value in review_packet if value["left"] == "banker" and value["right"] == "financier")
@@ -318,7 +350,7 @@ with tempfile.TemporaryDirectory() as directory:
     with contextlib.redirect_stdout(io.StringIO()):
         assert cli.main() == 0
     assert not build_entry("banker", banker_response, banker_evidence, banker)["pendingRelations"]
-    bank_path = root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('bank')}.json"
+    bank_path = entry_records(root) / f"{stable_word_id('bank')}.json"
     bank_before_derivation = read_json(bank_path)
     bank_before_derivation["derivatives"].append({"derivativeId": "d_" + "a" * 20,
         "word": "banker", "status": "candidate", "verificationStatus": "agent_reviewed",
@@ -329,8 +361,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert cli.advance_batch(root, derivation_run, {"accepted": [{"left": "bank", "right": "banker",
         "type": "family", "derivationConfirmed": True,
         "evidence": [{"word": "bank", "source": 0, "fragment": 0}]}]}) == 0
-    bank = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('bank')}.json")
-    banker = read_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('banker')}.json")
+    bank = read_json(entry_records(root) / f"{stable_word_id('bank')}.json")
+    banker = read_json(entry_records(root) / f"{stable_word_id('banker')}.json")
     assert bank["derivatives"][0]["targetWordId"] == banker["wordId"]
     assert bank["derivatives"][0]["derivativeId"] == "d_" + "a" * 20
     assert banker["derivatives"][0]["targetWordId"] == bank["wordId"]
@@ -388,6 +420,32 @@ with tempfile.TemporaryDirectory() as directory:
     assert modern_entry["schemaVersion"] == "1.3"
     assert modern_entry["pronunciations"][0]["ipa"]["verificationStatus"] == "automatic_passed"
     assert modern_entry["inflections"][0]["form"]["verificationStatus"] == "automatic_passed"
+    from rule_inflections import _updated
+    derived_entry = json.loads(json.dumps(modern_entry))
+    basis = derived_entry["senses"][0]
+    derived_entry = _updated(derived_entry, [{"kind": "superlative", "text": "happiest",
+        "partOfSpeech": basis["partOfSpeech"], "derivation": {"ruleId": "test_rule", "ruleVersion": "1",
+        "basisSenseId": basis["senseId"], "basisSourceRefs": basis["definitionEn"]["sourceRefs"]}}])
+    cli.validate_entry(derived_entry, cli.HERE / "references" / "entry.schema.json")
+    assert derived_entry["inflections"][-1]["form"]["generationMethod"] == "rule_derived"
+    unsupported_rule = json.loads(json.dumps(derived_entry))
+    unsupported_rule["inflections"][-1]["form"]["sourceRefs"] = basis["definitionEn"]["sourceRefs"]
+    try:
+        cli.validate_entry(unsupported_rule, cli.HERE / "references" / "entry.schema.json")
+        raise AssertionError("规则推导不能伪称直接来源")
+    except ValueError:
+        pass
+    from family_review import _add_candidate
+    source = json.loads(json.dumps(modern_evidence[0]))
+    source["fragments"].append({"locator": ".examp:nth(2)", "summary": "She looks happiest today."})
+    source["inflectionCandidates"].append({"partOfSpeech": "adjective", "kind": "superlative",
+                                           "form": "happiest", "fragment": 4})
+    previous_form_id = derived_entry["inflections"][-1]["formId"]
+    _add_candidate(derived_entry, "inflections", {"value": "happiest", "kind": "superlative",
+        "partOfSpeech": "adjective", "sourceRef": cli.source_ref(source["fragments"][4], source)}, [source])
+    assert derived_entry["inflections"][-1]["formId"] == previous_form_id
+    assert derived_entry["inflections"][-1]["form"]["generationMethod"] == "source_supported"
+    assert "derivation" not in derived_entry["inflections"][-1]
     assert read_json(modern_out / "gaps.json")["verificationGaps"] == []
     pending_entry = json.loads(json.dumps(modern_entry))
     pending_evidence = json.loads(json.dumps(modern_evidence))
@@ -424,7 +482,7 @@ with tempfile.TemporaryDirectory() as directory:
             for usage in sense[group]:
                 usage.pop("translationZh", None)
                 usage.pop("emphasis", None)
-    write_json(root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('happy')}.json", prior_entry)
+    write_json(entry_records(root) / f"{stable_word_id('happy')}.json", prior_entry)
     upsert(root / "outputs" / "词汇星图" / "dicts", prior_entry, render_entry_line)
     upgrade_run = cli.new_run(root, {"kind": "word", "word": "happy"})
     upgrade_log, _ = cli.paths(root, upgrade_run)
@@ -527,6 +585,41 @@ with tempfile.TemporaryDirectory() as directory:
         sys.argv = ["cli.py", command, "--root", str(root14), "--run-id", review_run]
         with contextlib.redirect_stdout(io.StringIO()):
             assert cli.main() == 0
+    countable_evidence = json.loads(json.dumps(modern_evidence))
+    countable_source = countable_evidence[0]
+    countable_source["url"] = "https://dictionary.cambridge.org/dictionary/english-chinese-simplified/paycheck"
+    countable_source["fragments"] = [
+        {"locator": ".def-block:nth(0)", "summary": "money earned for work / 薪水"},
+        {"locator": ".examp:nth(0)", "summary": "She received a paycheck. 她收到一笔薪水。"},
+        {"locator": ".uk .ipa", "summary": "ˈpeɪ.tʃek"}]
+    countable_source["senseCandidates"] = [{"partOfSpeech": "noun [ C ]",
+        "definitionEn": "money earned for work", "definitionZh": "薪水",
+        "example": "She received a paycheck.", "exampleTranslationZh": "她收到一笔薪水。",
+        "fragment": 0, "exampleFragment": 1}]
+    countable_source["pronunciationCandidates"] = [{"partOfSpeech": "noun [ C ]",
+        "variety": "uk", "ipa": "ˈpeɪ.tʃek", "fragment": 2}]
+    countable_source["inflectionCandidates"] = []
+    countable_run = cli.new_run(root14, {"kind": "word", "word": "paycheck"})
+    countable_log, countable_out = cli.paths(root14, countable_run)
+    write_json(countable_log / "evidence.json", countable_evidence)
+    assert cli.advance_word(root14, countable_run) == 3
+    countable_response = read_json(countable_log / "decision-template.json")
+    countable_response["evidenceDigest"] = read_json(countable_log / "generation_packet.json")["evidenceDigest"]
+    countable_response["senses"][0]["examples"][0]["emphasis"]["zh"] = [{"start": 5, "end": 7}]
+    assert cli.advance_word(root14, countable_run, countable_response) == 3
+    countable_packet = read_json(countable_log / "content-review-template.json")
+    assert cli.advance_word(root14, countable_run, {"evidenceDigest": countable_packet["evidenceDigest"],
+        "candidateDigest": countable_packet["candidateDigest"],
+        "approvedSenseIds": [countable_packet["senses"][0]["senseId"]], "deferredItemIds": []}) == 0
+    countable_entry = read_json(countable_out / "entry.json")
+    assert countable_entry["schemaVersion"] == "1.5"
+    pending_plural = next(form for form in countable_entry["inflections"] if form["form"]["text"] == "paychecks")
+    assert pending_plural["form"]["generationMethod"] == "rule_derived"
+    assert pending_plural["derivation"]["ruleVersion"] == "2"
+    assert "规则推导 · 待核验" in (countable_out / "entry.md").read_text(encoding="utf-8")
+    sys.argv = ["cli.py", "verify", "--root", str(root14), "--run-id", countable_run]
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert cli.main() == 0
     corrupted = {**content_answer, "candidateDigest": "0" * 64}
     write_json(review_log / "content-review-decision.json", corrupted)
     sys.argv = ["cli.py", "verify", "--root", str(root14), "--run-id", review_run]
@@ -587,7 +680,10 @@ with tempfile.TemporaryDirectory() as directory:
     shutil.copy2(PROJECT / "utils" / "references" / "workflow-state-v1.schema.json", spelling_schema)
     for word in ("quiet", "quite"):
         word_entry = build_entry(word, decision(), evidence(word))
-        entry_path = spelling_root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(word)}.json"
+        # These two spelling fixtures represent independent words, not the happy fixture
+        # whose aliases and inflected forms the generic decision helper supplies.
+        word_entry.update(aliases=[], inflections=[], derivatives=[])
+        entry_path = entry_records(spelling_root) / f"{stable_word_id(word)}.json"
         entry_path.parent.mkdir(parents=True, exist_ok=True)
         cli.write_text_atomic(entry_path, cli.entry_json_text(word_entry))
     spelling_run = cli.new_run(spelling_root, {"kind": "batch", "inlineText": "quiet\nquite", "entrySchemaVersion": "1.2"})
@@ -608,14 +704,14 @@ with tempfile.TemporaryDirectory() as directory:
     except ValueError:
         pass
     for source, target in (("quiet", "quite"), ("quite", "quiet")):
-        source_entry = read_json(spelling_root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id(source)}.json")
+        source_entry = read_json(entry_records(spelling_root) / f"{stable_word_id(source)}.json")
         assert any(relation["type"] == "spelling_similar" and relation["targetWordId"] == stable_word_id(target)
                    and relation["verificationStatus"] == "automatic_passed"
                    and "sourceSenseId" not in relation for relation in source_entry["relationships"])
         rendered = cli.render_entry_markdown(source_entry, {"sourceCoverage": []})
         assert "词条级关系 · 拼写相似（可能易混）" in rendered
         assert "判据：最长公共子列相似度 ≥ 0.75" in rendered
-    quiet_path = spelling_root / "outputs" / "词汇星图" / "entries" / f"{stable_word_id('quiet')}.json"
+    quiet_path = entry_records(spelling_root) / f"{stable_word_id('quiet')}.json"
     quiet_entry = read_json(quiet_path)
     invalid_spelling = json.loads(json.dumps(quiet_entry))
     invalid_spelling["relationships"][0]["targetLemma"] = "stone"
@@ -634,6 +730,7 @@ with tempfile.TemporaryDirectory() as directory:
     excluded_pair = cli._relation_candidates(spelling_root, [{"word": "quiet"}, {"word": "quite"}])
     assert not any("spelling_similarity" in pair["reasons"] for pair in excluded_pair)
     quiet_entry["aliases"].clear()
+    quiet_entry["inflections"] = build_entry("quiet", decision(), evidence("quiet"))["inflections"]
     quiet_entry["inflections"][0]["form"]["text"] = "quite"
     cli.write_text_atomic(quiet_path, cli.entry_json_text(quiet_entry))
     excluded_pair = cli._relation_candidates(spelling_root, [{"word": "quiet"}, {"word": "quite"}])

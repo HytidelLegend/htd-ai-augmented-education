@@ -29,10 +29,11 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _extract_phase_states(text: str) -> list[str]:
+    text = re.sub(r'/\*.*?\*/|//[^\n]*', '', text, flags=re.DOTALL)
     match = re.search(r"type\s+Phase\s*=\s*(.*?);", text, re.DOTALL)
     if not match:
         return []
-    return re.findall(r"'([^']+)'", match.group(1))
+    return [value for _, value in re.findall(r"(['\"])([A-Za-z_][A-Za-z0-9_]*)\1", match.group(1))]
 
 
 def _extract_project_fields(text: str) -> list[str]:
@@ -87,7 +88,10 @@ def audit_applications(root: Path) -> tuple[list[dict[str, Any]], dict[str, Any]
         model_path = root / str(source_cfg.get("data_model", ""))
         states = _extract_phase_states(state_path.read_text(encoding="utf-8")) if state_path.is_file() else []
         model_fields = _extract_project_fields(model_path.read_text(encoding="utf-8")) if model_path.is_file() else []
-        documented_states = set(re.findall(r"\b(?:app_start|requesting_workspace|recent_projects|selecting_[a-z_]+|creating_project|opening_project|importing_zip|editor_editing|editor_practice|confirming_project_switch|conflict_pending|saving|exporting_zip|deleting_project|error)\b", prd))
+        documented_states = {
+            state for state in states
+            if re.search(r"(?<![A-Za-z0-9_])" + re.escape(state) + r"(?![A-Za-z0-9_])", prd)
+        }
         missing_states = sorted(set(states) - documented_states)
         if missing_states:
             _add(findings, "application_state_machine_mismatch", _rel(root, prd_path), "补充 PRD 中缺失的实现状态", missing_states, states, [_rel(root, state_path), _rel(root, prd_path)])

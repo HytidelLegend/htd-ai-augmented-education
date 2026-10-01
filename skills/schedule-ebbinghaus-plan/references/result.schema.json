@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "schedule-ebbinghaus-plan result v1",
+  "type": "object",
+  "required": ["schema_version", "n", "d", "completion_mode", "review_offsets", "batch_size", "batches", "days"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "n": {"type": "integer", "minimum": 1},
+    "d": {"type": "integer", "minimum": 1},
+    "completion_mode": {"enum": ["first_pass", "one_review"]},
+    "review_offsets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+    "batch_size": {"type": "integer", "minimum": 1},
+    "batches": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "required": ["batch_id", "item_ids", "new_day"],
+        "properties": {
+          "batch_id": {"type": "integer", "minimum": 1},
+          "item_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+          "new_day": {"type": "integer", "minimum": 1}
+        }, "additionalProperties": false
+      }
+    },
+    "days": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["day", "new_batch_ids", "review_batch_ids", "new_item_ids", "review_item_ids", "item_ids"],
+        "properties": {
+          "day": {"type": "integer", "minimum": 1},
+          "new_batch_ids": {"$ref": "#/$defs/ids"},
+          "review_batch_ids": {"$ref": "#/$defs/ids"},
+          "new_item_ids": {"$ref": "#/$defs/ids"},
+          "review_item_ids": {"$ref": "#/$defs/ids"},
+          "item_ids": {"$ref": "#/$defs/ids"}
+        }, "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "ids": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1}}
+  },
+  "additionalProperties": false
+}

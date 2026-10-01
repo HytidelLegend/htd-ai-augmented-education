@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["packetDigest", "reviews"],
+  "properties": {
+    "packetDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reviews": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+      "required": ["wordId", "field", "action", "candidateIds", "reason"],
+      "properties": {
+        "wordId": {"type": "string", "pattern": "^w_[0-9a-f]{20}$"},
+        "field": {"enum": ["inflections", "derivatives"]},
+        "action": {"enum": ["publish", "no_supported_candidate"]},
+        "candidateIds": {"type": "array", "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^fc_[0-9a-f]{20}$"}},
+        "reason": {"type": "string", "minLength": 3, "maxLength": 240}
+      }
+    }}
+  }
+}

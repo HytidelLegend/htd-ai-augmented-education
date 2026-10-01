@@ -5,7 +5,7 @@
   "properties": {
     "input": {"type": "object", "required": ["sha256", "format", "source"], "properties": {
       "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-      "format": {"enum": ["text", "csv"]}, "source": {"type": "string"}
+      "format": {"enum": ["text", "csv", "json", "jsonl"]}, "source": {"type": "string"}
     }},
     "words": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["word", "line", "sourceLines", "runId", "status"], "properties": {
       "word": {"type": "string"}, "line": {"type": "integer", "minimum": 1},

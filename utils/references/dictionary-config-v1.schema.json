@@ -101,6 +101,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "initializeOnEnter": {
+          "type": "boolean"
+        },
         "family": {
           "type": "string",
           "pattern": "^#[0-9A-Fa-f]{6}$"
@@ -147,6 +150,11 @@
               "minimum": 0,
               "maximum": 5000
             },
+            "familyNonMemberRepulsionStrength": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 5000
+            },
             "damping": {
               "type": "number",
               "exclusiveMinimum": 0,
@@ -156,17 +164,25 @@
               "type": "number",
               "minimum": 30,
               "maximum": 500
+            },
+            "familyNodeGap": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 64
             }
           },
           "required": [
             "springStrength",
             "repulsionStrength",
+            "familyNonMemberRepulsionStrength",
             "damping",
-            "restLength"
+            "restLength",
+            "familyNodeGap"
           ]
         }
       },
       "required": [
+        "initializeOnEnter",
         "family",
         "relations",
         "physics"
@@ -212,6 +228,20 @@
       "required": [
         "star"
       ]
+    },
+    "study": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wordsPerPage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "wordsPerPage"
+      ]
     }
   },
   "required": [
@@ -220,6 +250,7 @@
     "learning",
     "graph",
     "controls",
-    "favorites"
+    "favorites",
+    "study"
   ]
 }

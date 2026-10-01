@@ -10,6 +10,7 @@
     "./skills/en-writing-master",
     "./skills/build-mnemonic-keywords",
     "./skills/mark-memory-spans",
+    "./skills/schedule-ebbinghaus-plan",
     "./skills/render-handwritten-essay-card",
     "./skills/build-word-entry",
     "./skills/beta-build-curriculum-navigation",

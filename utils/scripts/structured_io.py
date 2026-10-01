@@ -59,6 +59,10 @@ def validate_json_schema(value: Any, schema_path: Path) -> None:
 
 def write_json(path: Path, value: Any) -> None:
     """Write deterministic human-readable JSON as UTF-8 without BOM and LF."""
+    from utils.scripts.dictionary_records import EntryRecord
+    if isinstance(path, EntryRecord):
+        write_text_atomic(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(value, ensure_ascii=False, indent=2) + "\n",
@@ -74,6 +78,10 @@ def write_text_atomic(path: Path, text: str) -> None:
 
 def write_text_transaction(updates: Mapping[Path, str]) -> None:
     """Atomically replace multiple UTF-8/LF text files with rollback on failure."""
+    from utils.scripts.dictionary_records import EntryRecord, commit_records
+    if any(isinstance(path, EntryRecord) for path in updates):
+        commit_records(dict(updates))
+        return
     entries = [(Path(path), str(value).replace("\r\n", "\n").replace("\r", "\n")) for path, value in updates.items()]
     if not entries:
         return

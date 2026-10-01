@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "algorithmVersion",
+    "threshold",
+    "vocabulary",
+    "pairs",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "algorithmVersion": {
+      "const": "lcs-0.75-v1"
+    },
+    "threshold": {
+      "const": {
+        "numerator": 3,
+        "denominator": 4
+      }
+    },
+    "updatedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
+    },
+    "vocabulary": {
+      "type": "object",
+      "patternProperties": {
+        "^w_[0-9a-f]{20}$": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "pairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "leftId",
+          "rightId",
+          "lcsLength",
+          "publicationStatus"
+        ],
+        "properties": {
+          "leftId": {
+            "type": "string",
+            "pattern": "^w_[0-9a-f]{20}$"
+          },
+          "rightId": {
+            "type": "string",
+            "pattern": "^w_[0-9a-f]{20}$"
+          },
+          "lcsLength": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "publicationStatus": {
+            "enum": [
+              "waiting_for_entries",
+              "published"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

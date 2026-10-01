@@ -59,6 +59,8 @@ def read_bucket(path: Path, validate: Callable[[dict], None] | None = None) -> d
 
 
 def read_all(directory: Path, validate: Callable[[dict], None] | None = None) -> dict[str, dict]:
+    from utils.scripts.dictionary_records import recover
+    recover(directory)
     entries: dict[str, dict] = {}
     for letter in "abcdefghijklmnopqrstuvwxyz":
         for word_id, entry in read_bucket(directory / f"{letter}.jsonl", validate).items():
@@ -84,6 +86,11 @@ def upsert(directory: Path, entry: dict, render: Callable[[dict], str],
 def sync_entry_files(legacy_directory: Path, directory: Path,
                      validate: Callable[[dict], None] | None = None) -> int:
     """Publish verified legacy working files to JSONL without overwriting newer rows."""
+    from utils.scripts.dictionary_records import EntryCollection
+    if isinstance(legacy_directory, EntryCollection):
+        ensure_buckets(directory)
+        read_all(directory, validate)
+        return 0
     ensure_buckets(directory)
     current = read_all(directory, validate)
     changed = 0
@@ -111,31 +118,36 @@ def reconcile_entry_files(working_directory: Path, directory: Path,
     A missing or older copy is refreshed from the newer revision. Equal-revision
     differences are always a conflict, so neither side silently wins.
     """
+    from utils.scripts.dictionary_records import EntryCollection, entries, commit_records
+    if isinstance(working_directory, EntryCollection):
+        ensure_buckets(directory)
+        read_all(directory, validate)
+        return {"jsonl": 0, "working": 0}
     ensure_buckets(directory)
     published = read_all(directory, validate)
-    working_directory.mkdir(parents=True, exist_ok=True)
-    written_jsonl = written_working = 0
-    working: dict[str, dict] = {}
-    newer_working: list[dict] = []
-    for path in sorted(working_directory.glob("*.json")):
+    updates = {}
+    sources = list(sorted(working_directory.glob("*.json")))
+    for path in sources:
         entry = json.loads(path.read_text(encoding="utf-8"))
         if validate:
             validate(entry)
         if path.stem != entry.get("wordId"):
             raise ValueError(f"词条文件名与 wordId 不符：{path.name}")
-        working[entry["wordId"]] = entry
         prior = published.get(entry["wordId"])
-        if prior is None or entry["revision"] > prior["revision"]:
-            newer_working.append(entry)
-        elif entry["revision"] == prior["revision"] and entry != prior:
+        if prior is not None and prior["revision"] == entry["revision"] and prior != entry:
             raise ValueError(f"词条 JSONL 与工作文件修订冲突：{entry['wordId']}")
-    for entry in newer_working:
-        upsert(directory, entry, render, validate)
-        published[entry["wordId"]] = entry
-        written_jsonl += 1
-    for word_id, entry in published.items():
-        old = working.get(word_id)
-        if old is None or old["revision"] < entry["revision"]:
-            write_text_atomic(working_directory / f"{word_id}.json", render(entry).strip() + "\n")
-            written_working += 1
-    return {"jsonl": written_jsonl, "working": written_working}
+        if prior is None or entry["revision"] > prior["revision"]:
+            updates[entries(directory.parents[2]) / path.name] = render(entry)
+    # Existing working data is a migration input only. No working copy is rebuilt.
+    if updates:
+        commit_records(updates)
+    verified = read_all(directory, validate)
+    for path in sources:
+        old = json.loads(path.read_text(encoding="utf-8"))
+        if verified[old["wordId"]]["revision"] < old["revision"]:
+            raise ValueError("词库迁移验证失败")
+    for path in sources:
+        path.unlink()
+    if working_directory.is_dir() and not any(working_directory.iterdir()):
+        working_directory.rmdir()
+    return {"jsonl": len(updates), "working": 0}

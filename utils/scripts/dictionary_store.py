@@ -18,11 +18,13 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-from utils.scripts.dictionary_contract import WORD_ID, default_project, default_state, validate
+from utils.scripts.dictionary_contract import DEFAULT_CONFIG, WORD_ID, default_project, default_state, validate
 from utils.scripts.dictionary_graph import candidate_node_ids, project_graph
-from utils.scripts.dictionary_jsonl import bucket, ensure_buckets, read_all, read_bucket, reconcile_entry_files, render_entry_line, upsert
-from utils.scripts.file_transaction import project_lock
-from utils.scripts.structured_io import write_text_atomic
+from utils.scripts.dictionary_records import entries
+from utils.scripts.dictionary_spelling import sync as sync_spelling, load_index as load_spelling_index, adjacent as spelling_adjacent, word_id as spelling_word_id
+from utils.scripts.dictionary_jsonl import bucket, ensure_buckets, read_all
+from utils.scripts.file_transaction import project_lock, recover_stale_lock
+from utils.scripts.structured_io import validate_json_schema, write_text_atomic
 from utils.scripts.timestamp import iso_timestamp
 
 RELATION_TYPES = ("family", "synonym", "near_synonym", "antonym", "spelling_similar")
@@ -53,7 +55,7 @@ class DictionaryStore:
     def __init__(self, root: Path):
         self.root = root.resolve()
         self.data = self.root / "outputs" / "词汇星图"
-        self.entries_dir = self.data / "entries"
+        self.entries_dir = entries(root)
         self.dicts_dir = self.data / "dicts"
         self.projects_dir = self.data / "projects"
         self.lock = threading.RLock()
@@ -63,35 +65,43 @@ class DictionaryStore:
         self.graph_validator = Draft202012Validator(json.loads(graph_schema.read_text(encoding="utf-8")))
         self._entries_cache: dict[str, dict[str, Any]] | None = None
         self._entries_signature: tuple[tuple[str, int, int], ...] | None = None
+        self._search_index: dict[str, dict[str, Any]] | None = None
+        self._search_signature: tuple[tuple[str, int, int], ...] | None = None
         config_path = self.root / "applications" / "词汇星图" / "config.yaml"
         self.config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        self.config["graph"]["physics"].setdefault("familyNodeGap", DEFAULT_CONFIG["graph"]["physics"]["familyNodeGap"])
         validate("dictionary-config-v1.schema.json", self.config)
+
+    def config_snapshot(self) -> dict[str, Any]:
+        path = self.root / "applications" / "词汇星图" / "config.yaml"
+        with self.lock:
+            raw = path.read_bytes()
+            current = yaml.safe_load(raw.decode("utf-8"))
+            current["graph"]["physics"].setdefault("familyNodeGap", DEFAULT_CONFIG["graph"]["physics"]["familyNodeGap"])
+            validate("dictionary-config-v1.schema.json", current)
+            self.config = current
+            return {"config": copy.deepcopy(current), "revision": hashlib.sha256(raw).hexdigest()}
+
+    def save_config(self, value: dict[str, Any], expected_revision: str) -> dict[str, Any]:
+        path = self.root / "applications" / "词汇星图" / "config.yaml"
+        try:
+            validate("dictionary-config-v1.schema.json", value)
+        except Exception as exc:
+            raise ValueError(f"配置无效：{exc.message if hasattr(exc, 'message') else exc}") from exc
+        with self.lock, project_lock(self.root / "logs" / "词汇星图" / "store.lock", "dictionary:config"):
+            if sha256(path) != expected_revision:
+                raise ConflictError("配置版本冲突，请重新加载设置")
+            write_text_atomic(path, yaml.safe_dump(value, allow_unicode=True, sort_keys=False))
+            self.config = copy.deepcopy(value)
+            return self.config_snapshot()
 
     def migrate_entries(self) -> dict[str, int]:
         """Copy verified legacy entries; never overwrite either location."""
-        sources = [self.root / "outputs" / "英文词典" / "entries"]
-        copied = identical = 0
+        from utils.scripts.dictionary_migration import migrate
         with self.lock:
-            ensure_buckets(self.dicts_dir)
-            existing = read_all(self.dicts_dir, self.entry_validator.validate)
-            for source in sources:
-                for path in sorted(source.glob("*.json")):
-                    entry = self._read_entry(path)
-                    prior = existing.get(entry["wordId"])
-                    if prior is not None:
-                        if prior["revision"] < entry["revision"] or (
-                            prior["revision"] == entry["revision"] and prior != entry
-                        ):
-                            raise ConflictError(f"迁移冲突：{path.name} 与 JSONL 词条内容不同")
-                        identical += 1
-                        continue
-                    upsert(self.dicts_dir, entry, render_entry_line, self.entry_validator.validate)
-                    existing[entry["wordId"]] = entry
-                    copied += 1
-            reconciled = reconcile_entry_files(self.entries_dir, self.dicts_dir, self.entry_validator.validate)
-            copied += reconciled["jsonl"]
+            result = migrate(self.root, self.entry_validator.validate)
             self._entries_cache = None
-        return {"copied": copied, "identical": identical}
+        return result
 
     def _read_entry(self, path: Path) -> dict[str, Any]:
         raw = path.read_text(encoding="utf-8")
@@ -106,6 +116,8 @@ class DictionaryStore:
 
     def entries(self) -> dict[str, dict[str, Any]]:
         with self.lock:
+            from utils.scripts.dictionary_records import recover
+            recover(self.dicts_dir)
             paths = sorted(self.dicts_dir.glob("?.jsonl"))
             signature = tuple((path.name, path.stat().st_mtime_ns, path.stat().st_size) for path in paths)
             if self._entries_cache is not None and signature == self._entries_signature:
@@ -127,6 +139,11 @@ class DictionaryStore:
             self._entries_cache = entries
             self._entries_signature = signature
             return entries
+
+    def entry_count(self) -> int:
+        """Report startup health without forcing the full lexical index to load."""
+        return sum(1 for path in self.dicts_dir.glob("?.jsonl")
+                   for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
 
     def entry(self, word_id: str) -> dict[str, Any]:
         if not re.fullmatch(WORD_ID, word_id):
@@ -156,7 +173,7 @@ class DictionaryStore:
 
     def project(self, project_id: str) -> dict[str, Any]:
         path = self._project_path(project_id)
-        if project_id == "default" and not path.is_file():
+        if project_id == "default" and not path.is_file() and not any(self.projects_dir.glob("*/project.json")):
             value = self._default_project()
             validate("dictionary-project-v1.schema.json", value)
             write_text_atomic(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
@@ -171,8 +188,50 @@ class DictionaryStore:
         return value
 
     def projects(self) -> list[dict[str, Any]]:
-        self.project("default")
+        if not any(self.projects_dir.glob("*/project.json")):
+            self.project("default")
         return [self.project(path.parent.name) for path in sorted(self.projects_dir.glob("*/project.json"))]
+
+    @staticmethod
+    def project_words(raw: str) -> list[dict[str, str]]:
+        unique = list(dict.fromkeys(normalize_lemma(line) for line in raw.splitlines() if line.strip()))
+        return [{"wordId": word_id(lemma), "lemma": lemma} for lemma in unique]
+
+    def update_project(self, project_id: str, name: str, raw: str, revision: int) -> dict[str, Any]:
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
+            raise ValueError("项目名称无效")
+        words = self.project_words(raw)
+        spelling_lock = self.root / "logs" / "dictionary-spelling" / "index.lock"
+        if spelling_lock.exists() and not recover_stale_lock(spelling_lock):
+            raise ConflictError("拼写关系正在更新，请完成后重试")
+        with self.lock, project_lock(self.root / "logs" / "词汇星图" / "store.lock", "dictionary:projects"):
+            value = self.project(project_id)
+            if value["revision"] != revision:
+                raise ConflictError("项目版本冲突")
+            previous = copy.deepcopy(value)
+            value.update(name=name.strip(), words=words, revision=revision + 1, updatedAt=iso_timestamp())
+            validate("dictionary-project-v1.schema.json", value)
+            write_text_atomic(self._project_path(project_id), json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+            try:
+                if {row["wordId"] for row in previous["words"]} != {row["wordId"] for row in words}:
+                    sync_spelling(self.root)
+            except Exception:
+                write_text_atomic(self._project_path(project_id), json.dumps(previous, ensure_ascii=False, indent=2) + "\n")
+                raise
+            self._entries_cache = None
+            return value
+
+    def delete_project(self, project_id: str, revision: int) -> None:
+        with self.lock, project_lock(self.root / "logs" / "词汇星图" / "store.lock", "dictionary:projects"):
+            value = self.project(project_id)
+            if value["revision"] != revision:
+                raise ConflictError("项目版本冲突")
+            if len(self.projects()) <= 1:
+                raise ValueError("至少保留一个项目")
+            directory = self._project_path(project_id).parent
+            self._project_path(project_id).unlink()
+            (directory / "learning-state.json").unlink(missing_ok=True)
+            directory.rmdir()
 
     def create_project(self, name: str, raw: str = "", kind: str = "text") -> dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
@@ -196,12 +255,22 @@ class DictionaryStore:
             normalized = normalize_lemma(lemma)
             bucket(normalized)
             lemmas.append(normalized)
+        spelling_lock = self.root / "logs" / "dictionary-spelling" / "index.lock"
+        if spelling_lock.exists() and not recover_stale_lock(spelling_lock):
+            raise ConflictError("拼写关系正在更新，请完成后重试")
         unique = list(dict.fromkeys(lemmas))
         value = default_project(uuid.uuid4().hex, name.strip(),
                                 [{"wordId": word_id(lemma), "lemma": lemma} for lemma in unique], iso_timestamp())
         validate("dictionary-project-v1.schema.json", value)
         with self.lock, project_lock(self.root / "logs" / "词汇星图" / "store.lock", "dictionary:projects"):
             write_text_atomic(self._project_path(value["projectId"]), json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+        try:
+            sync_spelling(self.root)
+        except Exception:
+            self._project_path(value["projectId"]).unlink(missing_ok=True)
+            if self._project_path(value["projectId"]).parent.exists() and not any(self._project_path(value["projectId"]).parent.iterdir()):
+                self._project_path(value["projectId"]).parent.rmdir()
+            raise
         return value
 
     def rename_project(self, project_id: str, name: str, revision: int) -> dict[str, Any]:
@@ -216,19 +285,38 @@ class DictionaryStore:
             write_text_atomic(self._project_path(project_id), json.dumps(value, ensure_ascii=False, indent=2) + "\n")
             return value
 
-    def search(self, query: str) -> list[dict[str, Any]]:
+    def search(self, query: str, active_project_id: str | None = None) -> list[dict[str, Any]]:
         term = normalize_lemma(query)
         if not term:
             return []
-        known = self.entries()
-        found: dict[str, dict[str, Any]] = {}
-        for project in self.projects():
-            for row in project["words"]:
-                if term not in normalize_lemma(row["lemma"]):
-                    continue
-                result = found.setdefault(row["wordId"], {**row, "built": row["wordId"] in known, "projects": []})
-                result["projects"].append({"projectId": project["projectId"], "name": project["name"]})
-        return sorted(found.values(), key=lambda item: (normalize_lemma(item["lemma"]) != term, item["lemma"]))[:100]
+        with self.lock:
+            project_paths = sorted(self.projects_dir.glob("*/project.json"))
+            dict_paths = sorted(self.dicts_dir.glob("?.jsonl"))
+            signature = tuple((str(path), path.stat().st_mtime_ns, path.stat().st_size)
+                              for path in [*project_paths, *dict_paths])
+            if self._search_index is None or signature != self._search_signature:
+                found: dict[str, dict[str, Any]] = {}
+                for path in project_paths:
+                    project = json.loads(path.read_text(encoding="utf-8"))
+                    for row in project["words"]:
+                        hit = found.setdefault(row["wordId"], {"wordId": row["wordId"],
+                            "lemma": row["lemma"], "built": False, "projects": []})
+                        hit["projects"].append({"projectId": project["projectId"], "name": project["name"]})
+                for path in dict_paths:
+                    for line in path.read_text(encoding="utf-8").splitlines():
+                        if line.strip():
+                            entry = json.loads(line)
+                            hit = found.setdefault(entry["wordId"], {"wordId": entry["wordId"],
+                                "lemma": entry["lemma"], "built": True, "projects": []})
+                            hit["built"] = True
+                self._search_index = found
+                self._search_signature = signature
+            hits = [hit for hit in self._search_index.values() if term in normalize_lemma(hit["lemma"])]
+            return sorted(hits, key=lambda hit: (
+                0 if normalize_lemma(hit["lemma"]) == term else
+                1 if normalize_lemma(hit["lemma"]).startswith(term) else 2,
+                not any(project["projectId"] == active_project_id for project in hit["projects"]),
+                normalize_lemma(hit["lemma"])))[:100]
 
     def stage(self, stage_id: str) -> dict[str, Any] | None:
         if stage_id == "all":
@@ -327,6 +415,14 @@ class DictionaryStore:
         value = json.loads(path.read_text(encoding="utf-8"))
         if kind == "ui" and "activeProjectId" not in value:
             value["activeProjectId"] = "default"
+        if kind == "ui" and "study" not in value:
+            value["study"] = {"openPlanIds": [], "activeTabId": "home"}
+        if kind == "ui":
+            previews = [tab for tab in value["tabs"] if tab["kind"] in ("word", "candidate") and not tab["pinned"]]
+            keep = next((tab for tab in previews if tab["tabId"] == value["activeTabId"]), previews[-1] if previews else None)
+            value["tabs"] = [tab for tab in value["tabs"] if tab["kind"] not in ("word", "candidate") or tab["pinned"] or tab is keep]
+            value["graph"]["positions"] = {("w_" + wid.removeprefix("candidate:") if wid.startswith("candidate:") else wid): position
+                                            for wid, position in value["graph"]["positions"].items()}
         validate(f"dictionary-{kind}-v1.schema.json", value)
         return value
 
@@ -345,7 +441,14 @@ class DictionaryStore:
                           updatedAt=iso_timestamp())
             validate(f"dictionary-{kind}-v1.schema.json", result)
             known = self.entries()
-            if kind in ("learning", "favorites") and any(wid not in known for wid in result["words"]):
+            allowed_words = (known | {row["wordId"]: row for row in self.project(project_id)["words"]}
+                             if kind == "learning" else known)
+            if kind == "learning":
+                for path in (self.data / "plans").glob("plan_*.json"):
+                    plan = json.loads(path.read_text(encoding="utf-8"))
+                    if plan.get("projectId") == project_id:
+                        allowed_words.update({wid: None for wid in plan.get("wordIds", [])})
+            if kind in ("learning", "favorites") and any(wid not in allowed_words for wid in result["words"]):
                 raise ValueError("学习或收藏状态存在悬空 wordId")
             if kind == "ui":
                 self.project(result["activeProjectId"])
@@ -353,12 +456,17 @@ class DictionaryStore:
                 tabs = result["tabs"]
                 if not tabs or tabs[0]["tabId"] != "graph" or tabs[0]["kind"] != "graph" or not tabs[0]["pinned"]:
                     raise ValueError("图谱标签必须固定在首位")
+                if sum(tab["kind"] in ("word", "candidate") and not tab["pinned"] for tab in tabs) > 1:
+                    raise ValueError("最多保留一个未固定词条预览")
                 ids = [tab["tabId"] for tab in tabs]
                 if len(ids) != len(set(ids)) or result["activeTabId"] not in ids:
                     raise ValueError("标签 ID 重复或当前标签不存在")
+                study_tabs = result["study"]
+                if study_tabs["activeTabId"] != "home" and study_tabs["activeTabId"] not in study_tabs["openPlanIds"]:
+                    raise ValueError("背诵计划当前标签不存在")
                 if any(tab["kind"] == "word" and tab["wordId"] not in known for tab in tabs):
                     raise ValueError("词条标签引用悬空")
-                graph_ids = set(known) | candidate_node_ids(known, normalize_lemma)
+                graph_ids = set(known) | candidate_node_ids(known, normalize_lemma) | set(load_spelling_index(self.root)["vocabulary"])
                 graph_ids.update(row["wordId"] for project in self.projects() for row in project["words"])
                 if any(wid not in graph_ids for wid in result["graph"]["positions"]):
                     raise ValueError("图谱位置引用悬空")
@@ -368,10 +476,11 @@ class DictionaryStore:
             return result
 
     def patch_learning(self, word_id: str, level: str, revision: int, project_id: str | None = None) -> dict[str, Any]:
-        self.entry(word_id)
         if level not in ("unfamiliar", "seen", "familiar"):
             raise ValueError("无效熟悉度")
         project_id = project_id or self.state("ui")["activeProjectId"]
+        if word_id not in {row["wordId"] for row in self.project(project_id)["words"]} and word_id not in self.entries():
+            raise ValueError("单词不属于项目或总词库")
         state = self.state("learning", project_id)
         state["words"][word_id] = level
         return self.save_state("learning", state, revision, project_id)
@@ -426,17 +535,25 @@ class DictionaryStore:
 
     def bootstrap(self) -> dict[str, Any]:
         ui = self.state("ui")
-        return {"config": self.config, "stages": self.stages(), "projects": self.projects(),
+        return {"config": self.config, "stages": self.stages(), "projects": [],
                 "learning": self.state("learning", ui["activeProjectId"]),
                 "favorites": self.state("favorites"), "ui": ui,
-                "words": self.word_summaries(ui["activeStageId"])}
+                "words": []}
 
-    def word_summaries(self, stage_id: str) -> list[dict[str, Any]]:
+    def word_summaries(self, stage_id: str, project_id: str | None = None) -> list[dict[str, Any]]:
         stage = self.stage(stage_id)
-        return [self.summary(e, stage) for e in self.entries().values()]
+        entries = self.entries()
+        ids = ([row["wordId"] for row in self.project(project_id)["words"]] if project_id else entries.keys())
+        return [self.summary(entries[wid], stage) for wid in ids if wid in entries]
 
     def word_page(self, word_id: str, stage_id: str) -> dict[str, Any]:
         entry = copy.deepcopy(self.entry(word_id))
+        review_path = self.data / "family-reviews" / f"{word_id}.json"
+        family_reviews = []
+        if review_path.is_file():
+            review_data = json.loads(review_path.read_text(encoding="utf-8"))
+            validate_json_schema(review_data, self.root / "utils" / "references" / "dictionary-family-review-v1.schema.json")
+            family_reviews = review_data["reviews"]
         stage = self.stage(stage_id)
         core, more = self.selected_senses(entry, stage)
         selected = {s["senseId"] for s in core + more}
@@ -451,8 +568,17 @@ class DictionaryStore:
         relations = [{**r, "targetLemma": r.get("targetLemma") or known.get(r.get("targetWordId"), {}).get("lemma")}
                      for r in relations]
         candidates = [r for r in entry.get("pendingRelations", []) if r["sourceSenseId"] in selected]
+        for relation in spelling_adjacent(load_spelling_index(self.root), word_id):
+            if stage is not None and relation["relationshipId"] not in stage["words"].get(word_id, {}).get("relationshipIds", []):
+                continue
+            if any(item.get("targetWordId") == relation["targetWordId"] and item.get("type") == "spelling_similar" for item in relations):
+                continue
+            if relation["targetWordId"] not in known:
+                relation = {key: value for key, value in relation.items() if key != "targetWordId"}
+            relations.append(relation)
         return {"entry": entry, "coreSenses": core, "moreSenses": more,
                 "relationships": relations, "pendingRelations": candidates,
+                "familyReviews": family_reviews,
                 "outsideStage": stage is not None and word_id not in stage["words"]}
 
     def candidate(self, lemma: str) -> dict[str, Any]:
@@ -482,6 +608,10 @@ class DictionaryStore:
                     hits.append({"sourceWordId": entry["wordId"], "sourceLemma": entry["lemma"],
                                  "sourceSenseId": None, "type": "family", "status": form["form"]["verificationStatus"],
                                  "sourceRefs": form["form"].get("sourceRefs", [])})
+        index = load_spelling_index(self.root)
+        for relation in spelling_adjacent(index, spelling_word_id(normalized)):
+            hits.append({"sourceWordId": relation["targetWordId"], "sourceLemma": relation["targetLemma"],
+                         "sourceSenseId": None, "type": "spelling_similar", "status": "automatic_passed", "sourceRefs": []})
         if not hits:
             if not any(normalized == normalize_lemma(row["lemma"]) for project in self.projects() for row in project["words"]):
                 raise FileNotFoundError(lemma)
@@ -495,10 +625,12 @@ class DictionaryStore:
         project = self.project(project_id or self.state("ui")["activeProjectId"])
         stage = self.stage(stage_id)
         visible = {key: bool((visible or {}).get(key, True)) for key in RELATION_TYPES}
-        summaries = {wid: self.summary(entry, stage) for wid, entry in entries.items()}
+        overview_ids = {row["wordId"] for row in project["words"]} if selected is None else None
+        summaries = {wid: self.summary(entry, stage) for wid, entry in entries.items()
+                     if overview_ids is None or wid in overview_ids}
         result = project_graph(entries, summaries, normalize=normalize_lemma, selected=selected,
                                visible=visible, show_others=show_others, search=search,
                                limit=limit, show_outside=show_outside, stage=stage,
-                               project_words=project["words"])
+                               project_words=project["words"], spelling_index=load_spelling_index(self.root))
         self.graph_validator.validate(result)
         return result

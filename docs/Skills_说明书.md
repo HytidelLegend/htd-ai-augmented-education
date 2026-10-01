@@ -37,6 +37,7 @@ python skills/<skill-name>/scripts/cli.py <command> ...
 | `en-writing-master` | 创建作文工具，并按已有工具执行英语写作、批改和润色 | 用户提供写作规则、写作题目、作文或润色请求时 | `python skills/en-writing-master/scripts/cli.py list-tools --root .` |
 | `build-mnemonic-keywords` | 将一句背诵内容转为关键词、联想场景和生图提示词，并在确认后调用 `/imagegen` | 用户要求联想记忆、记忆口诀、场景化背诵或将记忆法生成图片时 | `start → resume → deliver --mode preview → 用户确认 → resume` |
 | `mark-memory-spans` | 从纯文本提取可挖空的语义记忆要点，保存不重叠 span，并用「」标记；支持新增、删除和调整 span | 用户要求标记背诵重点、提取记忆要点、生成挖空文本或修改已有记忆 span 时 | `start → resume`；编辑使用 `edit` |
+| `schedule-ebbinghaus-plan` | 将编号 1 至 n 的 item 分批安排首次背诵及间隔复习 | 用户指定 n，以及每天 item 数或首遍天数，并要求按艾宾浩斯规则生成逐日背诵计划时 | `start → verify → deliver`；暂停后用 `resume` |
 | `render-handwritten-essay-card` | 将英语作文生成通用英语考试答题卡手写印刷体照片提示词，并在确认后调用 `/imagen` | 用户提供英语作文并要求生成答题卡照片时 | `python skills/render-handwritten-essay-card/scripts/cli.py start --root . --input request.json` |
 
 | `build-word-entry` | 从单词或 UTF-8 词表生成可恢复、可校验的英语词条和批次关系 | 用户要建立词条、批量处理词表或恢复运行时 | `python skills/build-word-entry/scripts/cli.py start-word --root . --word bank` |
@@ -158,7 +159,9 @@ scenario_examples:
     expected_output: "生成词条 JSON、带 AI 置信度标注的可读结果及可恢复的批次报告"
 ```
 
-入口为 `runtime/.venv/Scripts/python.exe skills/build-word-entry/scripts/cli.py`，支持 `start-word`、`start-list`、`resume`、`status`、`verify` 和 `deliver`。文本词表一行一词；CSV 指定单词列；JSON 接受对象数组或 words 数组，JSONL 每行一个对象，并读取 word 与可选提示字段，去重后保存全部原始行号。完整词条按 lemma 首字母写入 outputs/词汇星图/dicts/a.jsonl 至 z.jsonl；旧 entries 目录作为状态机兼容工作文件，同步后由应用读取 JSONL。当前不处理学龄段标签。单词与批次各有显式状态机；证据采集使用四站可见浏览器，脚本预填 `decision-template.json`，人工登录或验证码操作暂停；Agent 只校对并补足少量结构化义项判断，必要时按内容项给出证据索引。Cambridge 候选按词性保留英美 IPA 和音频来源 URL。AI 生成释义与例句通过结构检查后可入库，保留 `pending`、`confidence` 和生成方式，展示脚本追加 `（AI 生成，置信度 0.85）`。`gaps.json` 记录来源覆盖与逐字段 `fieldGaps`：确实有候选却未发布时标记待补，证据不足时标记待核验；选择器预览限量不算采集截断。形容词比较级／最高级经来源核对后存于 `inflections[]`，独立派生词关系存于 `derivatives[]`。新版词条的无法判断的同义／近义／反义候选按来源义项保存在 `pendingRelations[]`；旧版词条仍可验证。词族与直接派生词分开确认；已判断的表外关系可先以词面正式关系保存，目标义项核对后再链接。正式批次结果只含输入文件名，不泄漏本地绝对路径；原始网页快照和浏览器会话不保存。正式结果位于 `outputs/build-word-entry/runs/<run-id>/`，状态与中间证据位于 `logs/build-word-entry/runs/<run-id>/`。
+入口为 `runtime/.venv/Scripts/python.exe skills/build-word-entry/scripts/cli.py`，支持 `start-word`、`start-list`、`resume`、`status`、`verify` 和 `deliver`。文本词表一行一词；CSV 指定单词列；JSON 接受对象数组或 words 数组，JSONL 每行一个对象，并读取 word 与可选提示字段，去重后保存全部原始行号。完整词条按 lemma 首字母写入 outputs/词汇星图/dicts/a.jsonl 至 z.jsonl；词条状态机及审核直接读写唯一 JSONL 词库；旧 entries 经迁移验证后清理，不再作为长期工作副本。当前不处理学龄段标签。单词与批次各有显式状态机；证据采集使用四站可见浏览器，脚本预填 `decision-template.json`，人工登录或验证码操作暂停；Agent 只校对并补足少量结构化义项判断，必要时按内容项给出证据索引。Cambridge 候选按词性保留英美 IPA 和音频来源 URL。AI 生成释义与例句通过结构检查后可入库，保留 `pending`、`confidence` 和生成方式，展示脚本追加 `（AI 生成，置信度 0.85）`。`gaps.json` 记录来源覆盖与逐字段 `fieldGaps`：确实有候选却未发布时标记待补，证据不足时标记待核验；选择器预览限量不算采集截断。形容词比较级／最高级经来源核对后存于 `inflections[]`，独立派生词关系存于 `derivatives[]`。新版词条的无法判断的同义／近义／反义候选按来源义项保存在 `pendingRelations[]`；旧版词条仍可验证。词族与直接派生词分开确认；已判断的表外关系可先以词面正式关系保存，目标义项核对后再链接。正式批次结果只含输入文件名，不泄漏本地绝对路径；原始网页快照和浏览器会话不保存。正式结果位于 `outputs/build-word-entry/runs/<run-id>/`，状态与中间证据位于 `logs/build-word-entry/runs/<run-id>/`。
+
+空词形和派生词字段的后续审核使用 `family_review.py start --project <id> → resume --run-id <id> --input <decision.json> → verify --run-id <id>`。状态机先生成逐字段候选包及精简决策模板，Agent 只判断候选是否具有直接关系；脚本校验来源、版本和判断后发布。审核结果保存于 `outputs/词汇星图/family-reviews/`，`automatic_passed` 表示审核判断已被脚本应用，`outcome` 分别记录已发布或现有来源无可证实内容；原采集缺口保留为历史记录。
 
 当前 1.3 版还由脚本生成 `relation-review-template.json`：Agent 按候选 ID 完成关系与派生词判断，脚本校验全量覆盖后发布。已确认的表外关系进入正式词条，目标词条未建时使用 `lemma_only`；旧版词条继续可验证。
 
@@ -188,6 +191,23 @@ scenario_examples:
 Skill 运行时产生的请求快照统一写入 `logs/en-writing-master/runs/<run-id>/request.json`，Agent 通过 `resume --input` 提交的内容归档为同一目录下的 `agent-response.json`，不写入项目根目录或 `runtime/`；用户提供的输入文件位置保持不变，仅生成运行目录内的归档副本。
 
 对话交付必须使用 `deliver --mode write|grade|polish` 读取已验证的 `result.md`；`write`、`grade` 和 `polish` 默认 JSON 输出仅用于机器处理和状态恢复。`deliver` 会强制校验高级表达小节、固定表头及 `result.json`/`result.md` 一致性。
+
+### schedule-ebbinghaus-plan
+
+#### 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: plan-numbered-items
+    user_request: "将编号 1 到 30 的内容安排在 10 天内首次背完，并列出后续复习"
+    when_to_call: "用户给出 item 数量和完成天数，要求生成分批背诵与复习日程时"
+    invocation: "start → verify → deliver；暂停后使用 resume"
+    expected_output: "返回经验证的逐日 item 编号 JSON，并由脚本渲染对应 Markdown"
+```
+
+入口为 `runtime/.venv/Scripts/python.exe skills/schedule-ebbinghaus-plan/scripts/cli.py`，支持 `start`、`status`、`resume`、`verify` 和 `deliver`。请求必填正整数 `n`，并在每天首次背诵 item 数 `daily_items` 与首遍天数 `d` 中恰选一个；脚本计算另一个值。完成标准可选 `first_pass`（默认）或 `one_review`，后者要求各 item 在期限内至少复习一次。复习间隔默认在首次背诵后的第 1、2、4、7、15 天，可用严格递增的正整数数组覆盖。每天依次引入一个新 batch，到期复习 batch 不限量。给定 `d` 时默认模式要求 `d <= n`，batch 大小为 `ceil(n/d)`，item 均匀分到恰好 `d` 天；至少复习一轮时设最早复习间隔为 `r`，大小为 `ceil(n/(d-r))`，期限不可行时暂停报告原因。给定 `daily_items` 时直接用它作为 batch 上限，期限由实际批次数计算。排程结果会继续列出第 `d` 天之后的复习，空闲日也保留。
+
+状态机为 `prepared → validating_request → selecting_batch_size → building_schedule → validating_schedule → rendering_outputs → verifying_outputs → completed`；输入错误、期限不足和运行错误分别进入可恢复暂停状态。Python 脚本完成计算、Schema 校验和 Markdown 渲染，Agent 不填写逐日列表。正式结果位于 `outputs/schedule-ebbinghaus-plan/runs/<run-id>/result.json` 与 `result.md`；请求快照、状态与事件位于 `logs/schedule-ebbinghaus-plan/runs/<run-id>/`。
 
 ### render-handwritten-essay-card
 
@@ -287,3 +307,5 @@ scenario_examples:
     invocation: "start --to md → verify"
     expected_output: "生成经过验证的 Markdown 文件，不覆盖已有目标文件"
 ```
+
+词汇星图的葫芦排程改由共享 `utils/scripts/hulu_schedule.py` 应用状态机负责，旧独立 skill 移至 `tmp/schedule-hulu-plan/`，不注册、不参与运行链。拼写关系维护使用 `skills/build-word-entry/scripts/spelling_relations.py start --full`，支持增量 `start`、`status`、`resume`、`verify`；通用实现和 Schema 位于 `utils/`，全量／增量均无需 Agent 判断。

@@ -21,8 +21,9 @@ function SourceBadge({ item }: { item: ContentItem }) {
   const status: Record<string, string> = { pending: '待核验', automatic_passed: '自动通过',
     agent_passed: '审查通过', agent_reviewed: '审查通过', human_passed: '人工通过', rejected: '已驳回' };
   return <span className={`source-badge ${item.generationMethod === 'ai_generated' ? 'ai' : ''}`}>
-    {item.generationMethod === 'ai_generated' ? `AI 生成 · 置信度 ${item.confidence?.toFixed(2) ?? '—'}` : '来源支持'}
-    {' · ' + (status[item.verificationStatus] || item.verificationStatus)}
+    {item.generationMethod === 'rule_derived' ? '规则推导 · 待核验' :
+      <>{item.generationMethod === 'ai_generated' ? `AI 生成 · 置信度 ${item.confidence?.toFixed(2) ?? '—'}` : '来源支持'}
+        {' · ' + (status[item.verificationStatus] || item.verificationStatus)}</>}
   </span>;
 }
 
@@ -67,13 +68,18 @@ type Props = { page: WordPage; level: Level; favorited: boolean;
 
 export default function WordView({ page, level, favorited, onLevel, onFavorite, onOpenWord, onOpenCandidate, onAddToStage }: Props) {
   const { entry, coreSenses, moreSenses } = page;
-  const aiConfidences = entry.senses.flatMap(sense => [sense.definitionZh, sense.definitionEn,
-    ...sense.examples.flatMap(item => [item, ...(item.translationZh ? [item.translationZh] : [])]),
-    ...sense.collocations.flatMap(item => [item, ...(item.translationZh ? [item.translationZh] : [])]),
-    ...sense.phrases.flatMap(item => [item, ...(item.translationZh ? [item.translationZh] : [])])])
-    .filter(item => item.generationMethod === 'ai_generated' && item.confidence !== undefined)
-    .map(item => item.confidence);
-  const uniformConfidence = aiConfidences.length >= 5 && new Set(aiConfidences).size === 1;
+  const familyReview = (field: 'inflections' | 'derivatives') => page.familyReviews?.find(review => review.field === field);
+  const reviewNote = (field: 'inflections' | 'derivatives') => {
+    const review = familyReview(field);
+    if (!review) return null;
+    const hasPendingRules = field === 'inflections' && entry.inflections.some(
+      form => form.form.generationMethod === 'rule_derived');
+    return <p className="progress-note" title={`Agent 审核 ${review.reviewRef.reviewedAt} · 运行 ${review.reviewRef.runId}`}>
+      {review.outcome === 'no_supported_candidate'
+        ? hasPendingRules ? '已复核直接来源 · 规则推导词形待核验' : '已复核现有证据 · 暂无可发布内容'
+        : '自动通过 · Agent 已审核 · 已发布来源支持的候选'}
+    </p>;
+  };
   const [audioAvailable, setAudioAvailable] = useState<Record<string, boolean>>({});
   useEffect(() => {
     let active = true;
@@ -93,7 +99,7 @@ export default function WordView({ page, level, favorited, onLevel, onFavorite, 
   };
   const relations = (items: Relation[]) => items.map((relation, index) => <button key={relation.relationshipId || relation.candidateId || index}
     type="button" className="relation-pill" onClick={() => relation.targetWordId ? onOpenWord(relation.targetWordId) : relation.targetLemma && onOpenCandidate(relation.targetLemma)}>
-    <span className={`relation-mark relation-${relation.type || relation.proposedType}`} />
+    <span className={`relation-mark relation-${relation.proposedType === 'synonym_or_near_synonym' ? 'near_synonym' : relation.type || relation.proposedType}`} />
     <span><strong>{relation.targetLemma || relation.targetWordId || '待采集'}</strong><small>{relation.proposedType === 'synonym_or_near_synonym' ? '近义词 · 按规则分类' : relation.type && relation.type in relationLabels ? relationLabels[relation.type] : relation.proposedType || '候选关系'}{relation.candidateId ? ' · 待核验' : ''}{relation.type === 'spelling_similar' ? ' · 词条级关系' : ''}{!relation.targetWordId ? ' · 待采集' : ''}</small></span><span aria-hidden="true">↗</span>
   </button>);
   return <div className="word-page">
@@ -101,16 +107,15 @@ export default function WordView({ page, level, favorited, onLevel, onFavorite, 
       <div className="learning-bar"><span>我的熟悉度</span><div className="level-switch">{(['unfamiliar', 'seen', 'familiar'] as const).map((value, index) => <button key={value} type="button" aria-pressed={level === value} className={level === value ? 'selected' : ''} onClick={() => onLevel(value)}>{['陌生', '见过', '熟悉'][index]}</button>)}</div></div></div></div>
     <div className="pronunciations">{entry.pronunciations.map(item => <div key={item.pronunciationId} className="pronunciation"><span className="variety">{item.variety === 'uk' ? '英' : item.variety === 'us' ? '美' : '其他'}</span>
       <span className="ipa">/{item.ipa.text}/</span>{audioAvailable[item.variety] && <button type="button" className="audio-button" onClick={() => play(item.variety)} aria-label={`播放${item.variety === 'uk' ? '英式' : '美式'}发音`} title="播放发音"><Volume2 size={15} /></button>}{item.partOfSpeech && <span className="muted">{item.partOfSpeech}</span>}<SourceBadge item={item.ipa} /><Sources item={item.ipa} /></div>)}</div>
-    {uniformConfidence && <div className="confidence-note">多项 AI 内容使用相同置信度 {aiConfidences[0]?.toFixed(2)}，建议逐项复核。</div>}
     {page.outsideStage && <div className="notice-line">此词尚未加入当前学龄段。<button type="button" onClick={onAddToStage}>加入当前学龄段</button></div>}
     <section className="page-section"><div className="section-heading"><h2>核心释义</h2><small>FIRST TO KNOW</small></div>
       {coreSenses.length ? coreSenses.map((sense, index) => <SenseCard key={sense.senseId} sense={sense} index={index} core />) : <div className="empty-content">暂无已核实的核心释义。</div>}</section>
     {moreSenses.length > 0 && <section className="page-section"><div className="section-heading"><h2>更多释义</h2><small>MORE MEANINGS</small></div>
       {moreSenses.map((sense, index) => <SenseCard key={sense.senseId} sense={sense} index={coreSenses.length + index} core={false} />)}</section>}
-    {entry.inflections.length > 0 && <section className="page-section"><div className="section-heading"><h2>词形变化</h2><small>FORMS</small></div><div className="form-grid">
-      {entry.inflections.map(form => <button type="button" className="relation-pill" key={form.formId} onClick={() => form.targetWordId ? onOpenWord(form.targetWordId) : onOpenCandidate(form.form.text)}><span className="relation-mark relation-family"/><span><strong>{form.form.text}</strong><small>{form.kind} · {form.targetWordId ? '打开词条' : '待建词条'}</small></span><span aria-hidden="true">↗</span></button>)}</div></section>}
-    {entry.derivatives.length > 0 && <section className="page-section"><div className="section-heading"><h2>派生词</h2><small>WORD FAMILY</small></div><div className="relation-grid">
-      {entry.derivatives.map(item => <button key={item.derivativeId} type="button" className="relation-pill" onClick={() => item.targetWordId ? onOpenWord(item.targetWordId) : onOpenCandidate(item.word)}><strong>{item.word}</strong><small>{item.status === 'linked' ? '打开词条' : '待采集'}</small></button>)}</div></section>}
+    {(entry.inflections.length > 0 || familyReview('inflections')) && <section className="page-section"><div className="section-heading"><h2>词形变化</h2><small>FORMS</small></div>{reviewNote('inflections')}<div className="form-grid">
+      {entry.inflections.map(form => <button type="button" className="relation-pill" key={form.formId} onClick={() => form.targetWordId ? onOpenWord(form.targetWordId) : onOpenCandidate(form.form.text)}><span className="relation-mark relation-family"/><span><strong>{form.form.text}</strong><small>{form.kind} · {form.form.generationMethod === 'rule_derived' ? '规则推导 · 待核验 · ' : form.form.verificationStatus === 'automatic_passed' ? '自动通过 · ' : ''}{form.targetWordId ? '打开词条' : '待建词条'}</small></span><span aria-hidden="true">↗</span></button>)}</div></section>}
+    {(entry.derivatives.length > 0 || familyReview('derivatives')) && <section className="page-section"><div className="section-heading"><h2>派生词</h2><small>WORD FAMILY</small></div>{reviewNote('derivatives')}<div className="relation-grid derivative-grid">
+      {entry.derivatives.map(item => <button key={item.derivativeId} type="button" className="relation-pill" onClick={() => item.targetWordId ? onOpenWord(item.targetWordId) : onOpenCandidate(item.word)}><span className="relation-mark relation-family"/><span><strong>{item.word}</strong><small>{familyReview('derivatives')?.outcome === 'published' && item.verificationStatus === 'agent_reviewed' ? '自动通过 · Agent 已审核 · ' : ''}{item.status === 'linked' ? '打开词条' : '待采集'}</small></span></button>)}</div></section>}
     {(page.relationships.length > 0 || page.pendingRelations.length > 0) && <section className="page-section"><div className="section-heading"><h2>关联词</h2><small>CONNECTIONS</small></div>
       {(['synonym', 'near_synonym', 'antonym', 'spelling_similar'] as const).map(kind => { const group = [...page.relationships, ...page.pendingRelations].filter(item => (item.proposedType === 'synonym_or_near_synonym' ? 'near_synonym' : item.type || item.proposedType) === kind).sort((a, b) => (a.targetLemma || '').localeCompare(b.targetLemma || '', 'en')); return group.length ? <div className="relation-group" key={kind}><h3>{relationLabels[kind]}</h3><div className="relation-grid">{relations(group)}</div></div> : null; })}</section>}
   </div>;

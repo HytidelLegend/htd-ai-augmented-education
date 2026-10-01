@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 
+from utils.scripts.dictionary_records import entries as entry_records
 from utils.scripts.structured_io import read_json
 from utils.scripts.span_ops import markdown_bold_spans, validate_inline_spans, whole_word_spans
 from utils.scripts.timestamp import iso_timestamp
@@ -274,8 +275,13 @@ def build_entry(word: str, proposal: dict, evidence: list[dict], existing: dict 
             digest = hashlib.sha256(f"{word}|{pos}|{kind}|{form}".encode("utf-8")).hexdigest()[:20]
             form_id = "f_" + digest
             ref = source_ref(source["fragments"][candidate["fragment"]], source)
-            if form_id in existing_form_ids:
-                prior = next(value for value in inflections if value["formId"] == form_id)
+            prior = next((value for value in inflections if value["formId"] == form_id or
+                          value["kind"] == kind and value["form"]["text"].casefold() == form.casefold()), None)
+            if prior:
+                if prior["form"]["generationMethod"] == "rule_derived":
+                    prior["form"]["generationMethod"] = "source_supported"
+                    prior["partOfSpeech"] = pos
+                    prior.pop("derivation", None)
                 for destination in (prior["sourceRefs"], prior["form"]["sourceRefs"]):
                     if not any(value["site"] == ref["site"] and value["locator"] == ref["locator"]
                                and value["url"] == ref["url"] for value in destination):
@@ -330,16 +336,18 @@ def build_entry(word: str, proposal: dict, evidence: list[dict], existing: dict 
             if hint not in ("synonym_or_near_synonym", "antonym"):
                 continue
             group_key = (source_index, candidate["groupIndex"])
+            target_word = normalize_word(candidate["word"])
+            review_id = candidate_id_fn("rc", word, source_index, candidate["groupIndex"], target_word, hint)
+            decision = relation_decisions.get(review_id)
             source_sense_id = mappings.get(group_key)
             if not source_sense_id:
+                if decision and decision["action"] == "reject":
+                    continue
                 raise ValueError("关系候选缺少来源义项映射")
-            target_word = normalize_word(candidate["word"])
             override_key = (*group_key, target_word)
             proposed_type = overrides.get(override_key, hint)
             if override_key in overrides:
                 used_overrides.add(override_key)
-            review_id = candidate_id_fn("rc", word, source_index, candidate["groupIndex"], target_word, hint)
-            decision = relation_decisions.get(review_id)
             linked = [relation for relation in relationships
                       if relation.get("targetWordId") == stable_word_id(target_word)
                       and relation.get("sourceSenseId") == source_sense_id
@@ -422,7 +430,8 @@ def build_entry(word: str, proposal: dict, evidence: list[dict], existing: dict 
                                     "status": "candidate", "verificationStatus": "agent_reviewed",
                                     "sourceRefs": [source_ref(source["fragments"][candidate["fragment"]], source)]})
     result = {
-        "schemaVersion": schema_version, "wordId": stable_word_id(word), "lemma": word,
+        "schemaVersion": "1.5" if existing and existing.get("schemaVersion") == "1.5" else schema_version,
+        "wordId": stable_word_id(word), "lemma": word,
         "aliases": existing.get("aliases", []) if existing else [],
         "familyId": existing.get("familyId", stable_word_id(word)) if existing else stable_word_id(word),
         "pronunciations": pronunciations,
@@ -507,8 +516,8 @@ def validate_entry(entry: dict, schema: Path) -> str:
         if value["verificationStatus"] == "rejected":
             raise ValueError("被拒绝的内容不得发布")
         if value["verificationStatus"] == "agent_passed" and (
-                entry["schemaVersion"] != "1.4" or value["itemId"] not in content_ids):
-            raise ValueError("Agent 内容核验状态只适用于 1.4 版释义、用法及译文")
+                entry["schemaVersion"] not in ("1.4", "1.5") or value["itemId"] not in content_ids):
+            raise ValueError("Agent 内容核验状态只适用于 1.4+ 版释义、用法及译文")
         if value["verificationStatus"] != "agent_passed" and "verificationRef" in value:
             raise ValueError("未通过 Agent 内容核验的项目不得保留审查引用")
     if len(ids) != len(set(ids)):
@@ -530,7 +539,27 @@ def validate_entry(entry: dict, schema: Path) -> str:
                 or normalize_word(target) == entry["lemma"] or normalize_word(target) in known_forms
                 or not meets_subsequence_threshold(entry["lemma"], normalize_word(target))):
             raise ValueError("自动确认的拼写相似关系须达子列阈值、保持词条级且不得重复已知词形")
-    if entry["schemaVersion"] in ("1.3", "1.4"):
+    sense_ids = {sense["senseId"] for sense in entry["senses"]}
+    for form in entry["inflections"]:
+        derived = form["form"]["generationMethod"] == "rule_derived"
+        if derived != ("derivation" in form):
+            raise ValueError("规则词形必须且只能带 derivation")
+        if derived:
+            if (entry["schemaVersion"] != "1.5" or form["derivation"]["basisSenseId"] not in sense_ids
+                    or form["form"]["verificationStatus"] != "pending"
+                    or form["form"]["sourceRefs"] or form["sourceRefs"]):
+                raise ValueError("规则词形缺少可核对的词性来源或状态不符")
+            sense = next(sense for sense in entry["senses"] if sense["senseId"] == form["derivation"]["basisSenseId"])
+            if (form["partOfSpeech"] != sense["partOfSpeech"] or
+                    not all(ref in sense["definitionEn"]["sourceRefs"] for ref in form["derivation"]["basisSourceRefs"])):
+                raise ValueError("规则词形词性依据与来源义项不符")
+    for value in [*entry["aliases"], *(p["ipa"] for p in entry["pronunciations"]),
+                  *(item for sense in entry["senses"] for item in
+                    [sense["definitionZh"], sense["definitionEn"], *sense["grammarTags"],
+                     *sense["registerTags"], *sense["examples"], *sense["collocations"], *sense["phrases"]])]:
+        if value["generationMethod"] == "rule_derived":
+            raise ValueError("规则推导仅适用于词形变化")
+    if entry["schemaVersion"] in ("1.3", "1.4", "1.5"):
         forms = [entry["lemma"], *(value["form"]["text"] for value in entry["inflections"])]
         for sense in entry["senses"]:
             for example in sense["examples"]:
@@ -543,7 +572,6 @@ def validate_entry(entry: dict, schema: Path) -> str:
                 if not any("\u3400" <= character <= "\u9fff" for span in emphasis["zh"]
                            for character in example["translationZh"]["text"][span["start"]:span["end"]]):
                     raise ValueError("例句中文加粗区间须包含对应汉字")
-    sense_ids = {sense["senseId"] for sense in entry["senses"]}
     if any(candidate["sourceSenseId"] not in sense_ids or candidate["targetLemma"] == entry["lemma"]
            for candidate in entry.get("pendingRelations", [])):
         raise ValueError("待核验关系的来源义项或目标词无效")
@@ -552,7 +580,7 @@ def validate_entry(entry: dict, schema: Path) -> str:
 
 def validate_entry_references(root: Path, entry: dict) -> None:
     sense_ids = {sense["senseId"] for sense in entry["senses"]}
-    entries_dir = root / "outputs" / "词汇星图" / "entries"
+    entries_dir = entry_records(root)
     for relation in entry["relationships"]:
         if relation.get("sourceSenseId") and relation["sourceSenseId"] not in sense_ids:
             raise ValueError("关系源义项悬空")
@@ -586,7 +614,7 @@ def render_item(value: dict) -> str:
 
 def verify_observed_pronunciations_and_forms(entry: dict, evidence: list[dict]) -> list[dict]:
     """Promote exact current-page observations and explain every pending item."""
-    from adapters import regular_adjective_forms
+    from utils.scripts.english_inflections import observed_regular_forms, part_of_speech, regular_forms
 
     parts_of_speech = {sense["partOfSpeech"].casefold() for sense in entry["senses"]}
     gaps = []
@@ -618,14 +646,14 @@ def verify_observed_pronunciations_and_forms(entry: dict, evidence: list[dict]) 
             gaps.append({"field": "pronunciations", "itemId": ipa["itemId"], "status": "pending_review",
                          "reason": reason, "sourceSites": sorted({ref["site"] for ref in ipa["sourceRefs"]})})
 
-    adjective_forms = regular_adjective_forms(entry["lemma"])
     for inflection in entry["inflections"]:
         form = inflection["form"]
         if form["verificationStatus"] == "human_passed":
             continue
         observed = []
         for source in evidence:
-            for candidate in source.get("inflectionCandidates", []):
+            for candidate in [*source.get("inflectionCandidates", []),
+                              *observed_regular_forms(source, entry["lemma"])]:
                 if (candidate["form"].casefold() == form["text"].casefold()
                         and candidate["kind"] == inflection["kind"]
                         and candidate.get("partOfSpeech", "").casefold() == inflection.get("partOfSpeech", "").casefold()
@@ -633,12 +661,11 @@ def verify_observed_pronunciations_and_forms(entry: dict, evidence: list[dict]) 
                         and re.search(rf"(?<!\w){re.escape(form['text'])}(?!\w)",
                                       source["fragments"][candidate["fragment"]]["summary"], re.I)):
                     observed.append(source["fragments"][candidate["fragment"]]["locator"])
-        valid_pos = not inflection.get("partOfSpeech") or inflection["partOfSpeech"].casefold() in parts_of_speech
-        if inflection["kind"] in ("comparative", "superlative"):
-            plausible = (adjective_forms.get(inflection["kind"]) == form["text"].casefold()
-                         or bool(inflection.get("irregular")) and any("irreg-infls" in locator for locator in observed))
-        else:
-            plausible = any("irreg-infls" in locator for locator in observed)
+        pos = part_of_speech(inflection.get("partOfSpeech", ""))
+        valid_pos = not pos or any(part_of_speech(label) == pos for label in parts_of_speech)
+        regular = regular_forms(entry["lemma"], pos).get(inflection["kind"])
+        plausible = (regular == form["text"].casefold()
+                     or any("irreg-infls" in locator for locator in observed))
         form["verificationStatus"] = "automatic_passed" if observed and valid_pos and plausible else "pending"
         if form["verificationStatus"] == "pending":
             reason = ("source_candidate_mismatch" if not observed else
@@ -697,7 +724,9 @@ def render_entry_markdown(entry: dict, gaps: dict) -> str:
     lines.extend(["", "## 词形变化", ""])
     for form in entry["inflections"]:
         regularity = "不规则" if form.get("irregular") else "规则" if "irregular" in form else "未标规则性"
-        lines.append(f"- {form['kind']} · {form.get('partOfSpeech') or '未标词性'}：{content(form['form'])}；{regularity}")
+        displayed = (f"{render_item(form['form'])}（规则推导 · 待核验；词性依据："
+                     f"{refs({'sourceRefs': form['derivation']['basisSourceRefs']})}）") if form["form"]["generationMethod"] == "rule_derived" else content(form["form"])
+        lines.append(f"- {form['kind']} · {form.get('partOfSpeech') or '未标词性'}：{displayed}；{regularity}")
     if not entry["inflections"]:
         lines.append("- 暂无已发布词形")
 

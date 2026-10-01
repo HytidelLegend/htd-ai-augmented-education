@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "schedule-ebbinghaus-plan request v2",
+  "type": "object",
+  "required": [
+    "n"
+  ],
+  "properties": {
+    "n": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "d": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "completion_mode": {
+      "enum": [
+        "first_pass",
+        "one_review"
+      ],
+      "default": "first_pass"
+    },
+    "review_offsets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "default": [
+        1,
+        2,
+        4,
+        7,
+        15
+      ],
+      "description": "严格递增，单位为首次背诵后的天数。"
+    },
+    "daily_items": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "每天首次背诵的 item 数上限"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "d"
+      ],
+      "not": {
+        "required": [
+          "daily_items"
+        ]
+      }
+    },
+    {
+      "required": [
+        "daily_items"
+      ],
+      "not": {
+        "required": [
+          "d"
+        ]
+      }
+    }
+  ]
+}

@@ -17,6 +17,7 @@ learning:
   familiar: '#D8EEDB'
   outsideStage: '#D9DDDB'
 graph:
+  initializeOnEnter: true
   family: '#8B5CF6'
   relations:
     synonym: '#16A34A'
@@ -26,8 +27,10 @@ graph:
   physics:
     springStrength: 0.08
     repulsionStrength: 900
+    familyNonMemberRepulsionStrength: 1200
     damping: 0.82
     restLength: 150
+    familyNodeGap: 8
 controls:
   activeText: '#173A2B'
   inactiveText: '#68746E'
@@ -35,3 +38,5 @@ controls:
   sliderTrack: '#A9BEB1'
 favorites:
   star: '#F2B524'
+study:
+  wordsPerPage: 10

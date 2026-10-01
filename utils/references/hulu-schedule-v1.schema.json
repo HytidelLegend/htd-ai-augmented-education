@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["method", "batch_size", "batches", "days"],
+  "properties": {
+    "method": {"const": "hulu"},
+    "batch_size": {"type": "integer", "minimum": 1},
+    "batches": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false,
+      "required": ["batch", "item_ids"], "properties": {
+        "batch": {"type": "integer", "minimum": 1},
+        "item_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}}
+      }}},
+    "days": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false,
+      "required": ["day", "item_ids", "new_item_ids", "review_item_ids"], "properties": {
+        "day": {"type": "integer", "minimum": 1},
+        "item_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "new_item_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "review_item_ids": {"type": "array", "maxItems": 0}
+      }}}
+  }
+}
