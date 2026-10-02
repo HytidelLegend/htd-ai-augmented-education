@@ -9,7 +9,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "2.0"
+      "enum": [
+        "2.0",
+        "3.0"
+      ]
     },
     "input_paths": {
       "type": "array",
@@ -57,6 +60,12 @@
       ]
     },
     "bilingual_glossary": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "project_dir": {
       "type": [
         "string",
         "null"

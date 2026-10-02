@@ -1,0 +1,75 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "current_level",
+    "learning_goal",
+    "max_questions",
+    "goal_unit_ids",
+    "graph_revision",
+    "answers",
+    "pending_question",
+    "stop_reason"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "2.0"
+    },
+    "status": {
+      "enum": [
+        "question_required",
+        "awaiting_answer",
+        "completed"
+      ]
+    },
+    "current_level": {
+      "type": "string",
+      "minLength": 1
+    },
+    "learning_goal": {
+      "type": "string",
+      "minLength": 1
+    },
+    "max_questions": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "goal_unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "graph_revision": {
+      "type": "string"
+    },
+    "answers": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "pending_question": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "stop_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "untested_unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

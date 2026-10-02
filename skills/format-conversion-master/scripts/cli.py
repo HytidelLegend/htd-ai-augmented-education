@@ -8,7 +8,7 @@ from pathlib import Path
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="format-conversion-master CLI")
-    parser.add_argument("command", choices=["create-request", "start", "status", "resume", "verify"])
+    parser.add_argument("command", choices=["create-request", "init-request", "start", "status", "resume", "verify", "list-formats"])
     parser.add_argument("--root", default=".")
     parser.add_argument("--run-id")
     parser.add_argument("--input")
@@ -22,9 +22,7 @@ def main(argv: list[str] | None = None) -> int:
             cmd += [flag, value]
     cmd += extra
     code = subprocess.run(cmd, check=False).returncode
-    if code == 0:
-        return 0
-    return 4 if args.command == "verify" else 5
+    return code
 
 
 if __name__ == "__main__":

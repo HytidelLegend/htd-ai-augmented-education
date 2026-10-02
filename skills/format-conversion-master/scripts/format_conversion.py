@@ -7,7 +7,6 @@ import json
 import re
 import shutil
 import sys
-import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -28,7 +27,9 @@ from utils.scripts.epub_package import EpubPackage, EpubPackageError
 from utils.scripts.html_to_markdown import HtmlParseError, render_xhtml
 
 WORKFLOW = "format-conversion-master"
-SUPPORTED_CONVERSIONS = ({"source": "epub", "target": "pdf"}, {"source": "epub", "target": "md"})
+SUPPORTED_CONVERSIONS = ({"source": "epub", "target": "pdf"}, {"source": "epub", "target": "md"},
+                         {"source": "doc", "target": "md"}, {"source": "docx", "target": "md"},
+                         {"source": "pdf", "target": "md"})
 REQUEST_SCHEMA = PROJECT_ROOT / "skills" / WORKFLOW / "references" / "request.schema.json"
 DEFINITION = WorkflowDefinition.build(
     name=WORKFLOW,
@@ -56,12 +57,30 @@ DEFINITION = WorkflowDefinition.build(
     }
 )
 
+# Keep legacy runs recoverable while extending all error/resume paths explicitly.
+from mineru_workflow import STAGES as MINERU_STAGES, PAUSES as MINERU_PAUSES
+_transitions = {key: set(values) for key, values in DEFINITION.transitions.items()}
+for index, stage in enumerate(MINERU_STAGES):
+    _transitions.setdefault(stage, set()).add(MINERU_STAGES[index + 1] if index + 1 < len(MINERU_STAGES) else "completed")
+    _transitions[stage].update(MINERU_PAUSES)
+for pause in MINERU_PAUSES:
+    _transitions.setdefault(pause, set()).update(MINERU_STAGES)
+for stage in list(_transitions):
+    if not stage.startswith("paused_"):
+        _transitions[stage].add("paused_error")
+        _transitions["paused_error"].add(stage)
+_transitions["rendering"].add("paused_output_conflict")
+_transitions["paused_output_conflict"].update({"rendering", "publishing"})
+DEFINITION = WorkflowDefinition.build(name=WORKFLOW, transitions=_transitions)
+
 
 class ConversionError(RuntimeError):
     """A recoverable conversion failure."""
 
 
 def _run_dir(root: Path, run_id: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
+        raise ConversionError("无效 run-id")
     return root / "logs" / WORKFLOW / "runs" / run_id
 
 
@@ -269,12 +288,18 @@ def _read_request(path: Path) -> dict[str, Any]:
 
 
 def _advance(root: Path, state: dict[str, Any], *, output_override: str | None = None) -> dict[str, Any]:
+    if state.get("backend") == "mineru":
+        import mineru_workflow
+        return mineru_workflow.advance(root, state, sys.modules[__name__], output_override)
     run_id = str(state["run_id"])
     run_dir = _run_dir(root, run_id)
     target_format = str(read_json(_paths(run_dir)["request"]).get("target_format", "pdf"))
     paths = _paths(run_dir, target_format)
     store = _store(root, run_id)
     request = _read_request(paths["request"])
+    if Path(request["input_file"]).suffix.lower() in {".doc", ".docx", ".pdf"}:
+        import mineru_workflow
+        return mineru_workflow.advance(root, state, sys.modules[__name__], output_override)
     if output_override:
         request["output_file"] = output_override
         write_json(paths["request"], request)
@@ -380,34 +405,56 @@ def run(
     target_format: str,
     output_file: str | None = None,
     request_file: Path | None = None,
+    mineru_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if request_file:
+        if mineru_options:
+            raise ConversionError("--request-file 与 MinerU CLI 配置不能同时使用")
         request = _read_request(request_file)
     else:
         if not input_file:
             raise ConversionError("run 必须提供 --input 或 --request-file")
         request = {"input_file": input_file, "target_format": target_format.lstrip("."), "output_file": output_file, "paper_size": "a4"}
+        if mineru_options:
+            request["mineru"] = mineru_options
         validate_json_schema(request, REQUEST_SCHEMA)
     if request["target_format"] not in {"pdf", "md"}:
         raise ConversionError("不支持的目标格式：" + str(request["target_format"]))
+    source_format = Path(request["input_file"]).suffix.lower().lstrip(".")
+    if "://" in request["input_file"] or {"source": source_format, "target": request["target_format"]} not in SUPPORTED_CONVERSIONS:
+        raise ConversionError("仅支持本地 EPUB → PDF/MD，以及 DOC/DOCX/PDF → MD")
+    if source_format != "epub" and request.get("output_file"):
+        raise ConversionError("MinerU 完整包固定发布到对应 run 的 mineru/ 子目录，不支持 --output")
+    if source_format == "epub" and request.get("mineru"):
+        raise ConversionError("EPUB 分支不接受 MinerU 参数")
     root = root.resolve()
     runs = root / "logs" / WORKFLOW / "runs"
     used = [item.name for item in runs.iterdir()] if runs.exists() else []
-    run_id = unique_filename_timestamp(used) + "-" + uuid.uuid4().hex[:8]
+    run_id = unique_filename_timestamp(used)
     run_dir = _run_dir(root, run_id)
     run_dir.mkdir(parents=True, exist_ok=False)
     write_json(_paths(run_dir)["request"], request)
     _write_manifest(root, run_dir, request, run_id)
     now = iso_timestamp()
-    state = _store(root, run_id).create(_initial_state(run_id, now))
+    initial = _initial_state(run_id, now)
+    if source_format != "epub":
+        initial.update({"backend": "mineru", "request_sha256": file_sha256(_paths(run_dir)["request"])})
+    state = _store(root, run_id).create(initial)
     return _advance(root, state)
 
 
-def resume(root: Path, run_id: str, output_file: str | None = None) -> dict[str, Any]:
+def resume(root: Path, run_id: str, output_file: str | None = None, batch_id: str | None = None) -> dict[str, Any]:
     store = _store(root.resolve(), run_id)
     state = store.load()
+    if output_file and state.get("backend") == "mineru":
+        raise ConversionError("MinerU 完整包固定发布到对应 run 的 mineru/ 子目录，不支持 --output")
     if state["status"] == "completed":
+        verify(root, run_id)
         return state
+    if batch_id:
+        if state["status"] != "paused_submission_unknown" or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", batch_id):
+            raise ConversionError("--batch-id 仅用于提交结果不明确后的任务核对恢复")
+        state = store.checkpoint(state, event="batch_reconciled", updates={"current_batch_id": batch_id, "resume_stage": "uploading"})
     if str(state["status"]).startswith("paused_"):
         state = store.resume(state)
     return _advance(root.resolve(), state, output_override=output_file)
@@ -422,6 +469,9 @@ def verify(root: Path, run_id: str) -> dict[str, Any]:
     state = status(root, run_id)
     if state["status"] != "completed":
         raise ConversionError(f"运行尚未完成：{state['status']}")
+    if state.get("backend") == "mineru":
+        import mineru_workflow
+        return mineru_workflow.verify(root, state, sys.modules[__name__])
     manifest_store = _manifest(root, _run_dir(root, run_id))
     manifest = manifest_store.load()
     manifest_store.verify_files(manifest)
@@ -434,7 +484,7 @@ def verify(root: Path, run_id: str) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="可恢复的 EPUB → PDF/Markdown 格式转换")
+    parser = argparse.ArgumentParser(description="可恢复的 EPUB → PDF/MD、DOC/DOCX/PDF → MD 格式转换")
     parser.add_argument("command", choices=["run", "resume", "status", "verify", "list-formats", "init-request"])
     parser.add_argument("--root", type=Path, default=PROJECT_ROOT)
     parser.add_argument("--input")
@@ -442,14 +492,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output")
     parser.add_argument("--run-id")
     parser.add_argument("--request-file")
+    parser.add_argument("--batch-id")
+    parser.add_argument("--model-version", choices=["vlm", "pipeline"])
+    parser.add_argument("--language")
+    parser.add_argument("--page-ranges")
+    parser.add_argument("--is-ocr", action="store_true", default=None)
+    parser.add_argument("--request-timeout", type=int)
+    parser.add_argument("--poll-timeout", type=int)
+    parser.add_argument("--poll-interval", type=float)
     args = parser.parse_args(argv)
     try:
+        mineru_options = {key: getattr(args, key) for key in ("model_version", "language", "page_ranges", "is_ocr", "request_timeout", "poll_timeout", "poll_interval") if getattr(args, key) is not None}
         if args.command == "list-formats":
             result = {"status": "ok", "conversions": list(SUPPORTED_CONVERSIONS)}
         elif args.command == "init-request":
             if not args.request_file or not args.input:
                 raise ConversionError("init-request 必须提供 --request-file 和 --input")
             request = {"input_file": args.input, "target_format": args.target_format.lstrip("."), "output_file": args.output, "paper_size": "a4"}
+            if mineru_options:
+                request["mineru"] = mineru_options
             validate_json_schema(request, REQUEST_SCHEMA)
             request_path = Path(args.request_file).resolve()
             if request_path.exists():
@@ -459,20 +520,24 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "run":
             if not args.input and not args.request_file:
                 raise ConversionError("run 必须提供 --input 或 --request-file")
-            result = run(args.root, args.input, args.target_format, args.output, Path(args.request_file).resolve() if args.request_file else None)
+            result = run(args.root, args.input, args.target_format, args.output, Path(args.request_file).resolve() if args.request_file else None, mineru_options)
         elif not args.run_id:
             raise ConversionError(f"{args.command} 必须提供 --run-id")
         elif args.command == "resume":
-            result = resume(args.root, args.run_id, args.output)
+            result = resume(args.root, args.run_id, args.output, args.batch_id)
         elif args.command == "status":
             result = status(args.root, args.run_id)
         else:
             result = verify(args.root, args.run_id)
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        if str(result.get("status", "")).startswith("paused_"):
+            if result["status"] == "paused_dependency":
+                return 6
+            return 5 if result["status"] in {"paused_network", "paused_error"} else 3
         return 0
     except Exception as exc:
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False, indent=2))
-        return 1
+        return 4 if args.command == "verify" else 2
 
 
 if __name__ == "__main__":

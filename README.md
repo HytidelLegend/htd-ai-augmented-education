@@ -26,7 +26,7 @@
 | 项目维护 | `project-doc-audit` | 检查文档、Skills 注册、版本和 Python 依赖的差异 |
 | 项目维护 | `git-remote-diff` | 比较本地仓库、远端默认分支和工作区 |
 | 项目维护 | `sensitive-commit-check` | 在提交或发布前检查敏感信息 |
-| 文件处理 | `format-conversion-master` | 执行可恢复的 EPUB 格式转换 |
+| 文件处理 | `format-conversion-master` | 执行可恢复的 EPUB 格式转换，以及本地 DOC/DOCX/PDF 转 Markdown（MinerU 完整包） |
 | AI 辅助教学 | — | 待更新 |
 | AI 辅助科研 | — | 待更新 |
 

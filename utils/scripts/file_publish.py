@@ -6,6 +6,26 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Callable
+
+
+def publish_directory_without_overwrite(source: Path, target: Path, *, verifier: Callable[[Path], None] | None = None) -> None:
+    """Stage and verify a complete directory beside its destination, then rename."""
+    source = source.resolve()
+    target = target.absolute()
+    if not source.is_dir():
+        raise ValueError("待发布目录不存在")
+    if target.exists() or target.is_symlink():
+        raise FileExistsError("发布目标已存在，拒绝覆盖")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".publishing-", dir=target.parent) as temporary:
+        pending = Path(temporary) / "package"
+        shutil.copytree(source, pending)
+        if verifier:
+            verifier(pending)
+        if target.exists() or target.is_symlink():
+            raise FileExistsError("发布目标已存在，拒绝覆盖")
+        pending.rename(target)
 
 
 def publish_file_without_overwrite(source: Path, target: Path) -> None:

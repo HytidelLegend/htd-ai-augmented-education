@@ -1,0 +1,124 @@
+{
+  "type": "object",
+  "required": [
+    "project_id",
+    "title",
+    "navigation_json",
+    "navigation_hash",
+    "workspace_root",
+    "run_dir",
+    "schema_version",
+    "revision",
+    "state",
+    "current_lesson_id",
+    "unit_progress",
+    "applied_actions",
+    "candidate_orders",
+    "units",
+    "chapters",
+    "lessons",
+    "notes",
+    "errors",
+    "events",
+    "question_discussions"
+  ],
+  "properties": {
+    "project_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "navigation_json": {
+      "type": "string"
+    },
+    "navigation_hash": {
+      "type": "string"
+    },
+    "workspace_root": {
+      "type": "string"
+    },
+    "run_dir": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "3.0"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "lesson_decision_required",
+        "awaiting_answer",
+        "review_decision_required",
+        "awaiting_questions",
+        "completed"
+      ]
+    },
+    "current_lesson_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "unit_progress": {
+      "type": "object"
+    },
+    "applied_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "candidate_orders": {
+      "type": "object"
+    },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "lessons": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "question_discussions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

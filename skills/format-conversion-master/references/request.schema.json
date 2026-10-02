@@ -8,6 +8,20 @@
     "input_file": {"type": "string", "minLength": 1},
     "target_format": {"type": "string", "enum": ["pdf", "md"]},
     "output_file": {"type": ["string", "null"], "minLength": 1},
-    "paper_size": {"type": "string", "const": "a4"}
+    "paper_size": {"type": "string", "const": "a4"},
+    "mineru": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "model_version": {"enum": ["vlm", "pipeline"]},
+        "is_ocr": {"type": "boolean"},
+        "enable_formula": {"type": "boolean"},
+        "enable_table": {"type": "boolean"},
+        "language": {"type": "string", "minLength": 1},
+        "page_ranges": {"type": "string", "pattern": "^[1-9][0-9]*(?:--?[1-9][0-9]*)?(?:,[1-9][0-9]*(?:--?[1-9][0-9]*)?)*$"},
+        "request_timeout": {"type": "integer", "minimum": 1, "maximum": 60},
+        "poll_timeout": {"type": "integer", "minimum": 1},
+        "poll_interval": {"type": "number", "exclusiveMinimum": 0, "maximum": 60}
+      }
+    }
   }
 }

@@ -355,8 +355,10 @@ def render_navigation_markdown(navigation: dict[str, Any]) -> str:
         for module in stage["modules"]:
             lines.append(f"  - {module['sequence']}. {module['title']}：{module['overview']['purpose']}")
     lines.extend(["", "## 学习顺序", ""])
+    title_by_id = {u["unit_id"]: u["title"] for u in navigation["units"]}
     for unit in navigation["units"]:
-        lines.extend([f"### {unit['sequence']}. {unit['title']}", "", f"- 类型：`{unit['unit_type']}`", f"- 阶段：{unit['stage']}／{unit['module']}", f"- 重要性：`{unit['importance']}`；难度：`{unit['difficulty']}`", f"- 目的：{unit['purpose']}", f"- 先修：{', '.join(f'`{item}`' for item in unit['prerequisites']) or '无'}"])
+        display_type = "资料知识点" if unit["unit_type"] == "source_reading" else "导学知识点"
+        lines.extend([f"### {unit['sequence']}. {unit['title']}", "", f"- 类型：{display_type}", f"- 阶段：{unit['stage']}／{unit['module']}", f"- 重要性：`{unit['importance']}`；难度：`{unit['difficulty']}`", f"- 目的：{unit['purpose']}", f"- 先修：{', '.join(title_by_id[item] for item in unit['prerequisites']) or '无'}"])
         if unit["source"]:
             lines.extend([f"- 来源：`{unit['source']['file']}`", f"- 定位：`{unit['source']['heading_text']}`（第 {unit['source']['heading_occurrence']} 次）", f"- 行号提示：{unit['source']['start_line_hint']}～{unit['source']['end_line_hint']}"])
         for visual in unit["visual_references"]:
@@ -365,12 +367,22 @@ def render_navigation_markdown(navigation: dict[str, Any]) -> str:
         lines.append("")
     lines.extend(["## 概念首次教学索引", "", "| 概念 | 阅读单元 |", "|---|---|"])
     for concept, unit_id in navigation["concept_index"].items():
-        lines.append(f"| {concept.replace('|', '&#124;')} | `{unit_id}` |")
+        lines.append(f"| {concept.replace('|', '&#124;')} | {title_by_id[unit_id].replace('|', '&#124;')} |")
     lines.extend(["", "## 课程缺口", ""])
     lines.extend(f"- {item['topic']}：{item['reason']}" for item in navigation["coverage_gaps"])
     lines.extend(["", "## 延后内容", ""])
     lines.extend(f"- {item['topic']}：{item['reason']}；重新纳入条件：{item['reentry_condition']}" for item in navigation["deferred_items"])
-    return "\n".join(lines).rstrip() + "\n"
+    ordering = navigation.get('planning_profile', {}).get('ordering')
+    if ordering:
+        from utils.scripts.markdown_report import markdown_table
+        titles = {u['unit_id']: u['title'] for u in navigation['units']}
+        lines.extend(['', '## 候选学习顺序（按分数非升序）', '', markdown_table(
+            ['候选', '分数', '知识点顺序', '推荐理由'],
+            [[str(i+1), str(r['score']), ' → '.join(titles[x] for x in r['unit_ids']),
+              ('推荐；' if r['candidate_id'] in ordering['recommended_order_ids'] else '') + '；'.join(r['recommendation_reasons'])]
+             for i,r in enumerate(ordering['candidates'])])])
+    text = "\n".join(lines).rstrip() + "\n"
+    return text.replace('阅读单元', '知识点').replace('首次教学单元', '首次讲解知识点')
 
 
 def json_text(value: Any) -> str:

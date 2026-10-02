@@ -1,0 +1,153 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "lesson_id",
+    "overview",
+    "key_points",
+    "formulas",
+    "teaching_points",
+    "guiding_questions",
+    "questions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "4.0"
+    },
+    "lesson_id": {
+      "type": "string"
+    },
+    "overview": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key_points": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "formulas": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "teaching_points": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "unit_id",
+          "text",
+          "evidence_ids",
+          "external_explanation"
+        ],
+        "properties": {
+          "unit_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "external_explanation": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "guiding_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "question_id",
+          "type",
+          "unit_ids",
+          "prompt",
+          "options",
+          "correct_index",
+          "reference_answer",
+          "expected_points",
+          "evidence_ids"
+        ],
+        "properties": {
+          "question_id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "multiple_choice",
+              "open_ended"
+            ]
+          },
+          "unit_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "correct_index": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reference_answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_points": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

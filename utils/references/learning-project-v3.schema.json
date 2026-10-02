@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project_id",
+    "title",
+    "revision",
+    "status",
+    "updated_at",
+    "navigation_json",
+    "route",
+    "run_dir"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "3.0"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "in_progress",
+        "completed"
+      ]
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "navigation_json": {
+      "type": "string"
+    },
+    "route": {
+      "const": "artifacts/学习路线.json"
+    },
+    "run_dir": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

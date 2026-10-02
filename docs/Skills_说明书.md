@@ -41,8 +41,8 @@ python skills/<skill-name>/scripts/cli.py <command> ...
 | `render-handwritten-essay-card` | 将英语作文生成通用英语考试答题卡手写印刷体照片提示词，并在确认后调用 `/imagen` | 用户提供英语作文并要求生成答题卡照片时 | `python skills/render-handwritten-essay-card/scripts/cli.py start --root . --input request.json` |
 
 | `build-word-entry` | 从单词或 UTF-8 词表生成可恢复、可校验的英语词条和批次关系 | 用户要建立词条、批量处理词表或恢复运行时 | `python skills/build-word-entry/scripts/cli.py start-word --root . --word bank` |
-| `beta-build-curriculum-navigation` | 从一个或多个 Markdown 资料生成或增量维护课程学习顺序；本地测试版 | 用户要建立课程索引、安排跨资料学习顺序或插入新资料时 | `python skills/beta-build-curriculum-navigation/scripts/cli.py prepare --root . --request request.json` |
-| `beta-interactive-tutor` | 按单份 Markdown 或课程导航生成有证据的讲义，收集答案并更新学习进度；本地测试版 | 用户要开始或继续交互式学习、作答或获取学习报告时 | `python skills/beta-interactive-tutor/scripts/cli.py start --root . --request request.json` |
+| `beta-build-curriculum-navigation` | 从 Markdown 资料维护知识点依赖图、自适应诊断及评分候选顺序；本地测试版 | 用户要建立课程索引、安排跨资料学习顺序或插入新资料时 | `python skills/beta-build-curriculum-navigation/scripts/cli.py prepare --root . --request request.json` |
+| `beta-interactive-tutor` | 先校验学习导航，再生成课程、批改、答疑并维护双图与学习文档；本地测试版 | 用户要开始或继续交互式学习、作答或获取学习报告时 | `python skills/beta-interactive-tutor/scripts/cli.py start --root . --request request.json` |
 
 ### AI 辅助教学
 
@@ -108,43 +108,39 @@ scenario_examples:
 
 ### beta-build-curriculum-navigation
 
-个性化规划前确认学习者当前水平和学习目的；多个合法拓扑序出现时，Agent 逐题四选一、按二分思路估计知识边界，再在全部先修约束内选与目标和边界匹配的路线，并在排序理由中留痕。
+所有导师调用前必须先调用本 Skill：有效导航用 `verify`，新资料或目标变化用构建/增量流程。背景不足在对话中讨论，不生成询问背景的课程。导航图是知识点图。脚本采用目标优先自适应探测，默认最多 5 道诊断选择题（四个实质选项＋末尾不确定选项），未测区域保持未知；配置位于 Skill 的 `config.yaml`。
 
-这是本地测试版，暂不提交注册与说明改动。
-
-#### 具体场景示例
+脚本生成最多 10 条候选序列，保留全部实际生成候选及历史，按权重计算分项和总分并非升序排列。默认权重为目标 40%、背景 30%、难度 15%、主题 10%、解锁 5%。参数冻结在日志运行目录，每次继续比较、更新并提示变化。
 
 ```yaml
 scenario_examples:
   - id: build-course-order
-    user_request: "根据这些 Markdown 资料建立课程学习导航，并说明先学顺序"
-    when_to_call: "用户提供项目内 Markdown 资料，要求建立或增量维护课程索引、学习顺序时"
-    invocation: "init-request → prepare → resolve-source（逐份）→ resolve → resolve-ordering（如需）→ commit → verify"
-    expected_output: "经批准的导航 JSON、确定性 Markdown 视图和来源片段"
+    user_request: "根据这些资料建立学习导航"
+    when_to_call: "规划、增量维护，或每次导师调用前校验导航"
+    invocation: "prepare → resolve-source/resolve → diagnostic-start/question/answer → resolve-ordering → commit → verify"
+    expected_output: "知识点依赖图、诊断、全部评分候选和确定性 Markdown"
 ```
 
-入口为 `runtime/.venv/Scripts/python.exe skills/beta-build-curriculum-navigation/scripts/cli.py`。请求采用通用 v2 schema；`navigation_json` 可为空，默认正式产物位于 `outputs/beta-build-curriculum-navigation/runs/<run-id>/`，也可指定项目内任意 JSON 路径。状态、来源快照、决策模板、预览、差异和验证报告位于 `logs/beta-build-curriculum-navigation/runs/<run-id>/`。脚本生成候选与模板，Agent 只按候选 ID 补少量语义判断，正式 Markdown 由脚本渲染。
-
-状态机按 `prepared → source_navigation_fragment_required（逐份）→ all_source_navigation_fragments_ready → ordering_decision_required（如需）／awaiting_loop_resolution（如需）→ awaiting_approval → completed` 推进；来源冲突、输入变化与运行错误进入 `paused_*`，使用 `status` 和 `resume` 从原运行恢复。提交前核对预览哈希与正式导航并发变化，`verify` 检查来源、顺序、JSON、Markdown 和单资料片段。本测试版目录由 `.gitignore` 忽略；注册与本节说明仅供本地测试，暂不提交。
+状态为 `prepared → source_navigation_fragment_required → all_source_navigation_fragments_ready → ordering_decision_required → awaiting_approval → completed`；诊断子状态为 `question_required → awaiting_answer → question_required/completed`，环或错误进入相应暂停。Agent 只填写小补丁、出题及必要语义判断，Python 扩充 JSON 和 Markdown。正式导航位于 `outputs/beta-build-curriculum-navigation/runs/<run-id>/`，日志位于对应 `logs/`。完整契约见 `skills/beta-build-curriculum-navigation/SKILL.md`。
 
 ### beta-interactive-tutor
 
-首课前先用 `assessment-start` 确认当前水平和学习目的，再根据 `next_target` 一题一题调用 `assessment-question`、`assessment-answer` 完成最多五题的边界诊断。未完成时 `prepare-lesson` 返回待入学或待测评状态，不生成讲义。题目及答案只保存在运行日志中。
-
-#### 具体场景示例
+必须使用已完成新版导航，删除导师独立入学诊断及直接资料入口。每次调用先执行导航校验；课程与知识点是多对多关系，两张依赖图分别维护。未显式跳过知识点必须有有效课程覆盖，课程内外顺序都满足前置约束，主线基础不能留作可选支线。
 
 ```yaml
 scenario_examples:
   - id: learn-one-material
-    user_request: "按这份 Markdown 资料逐课教我，并检查我的练习答案"
-    when_to_call: "用户要求从一份 Markdown 或已完成的课程导航开始交互式学习时"
-    invocation: "init-request → start → assessment-start → assessment-question/assessment-answer（逐题；或 assessment-import）→ prepare-lesson → publish-lesson → check-answers/submit-chat-answer → review-answers → report → verify"
-    expected_output: "可追溯的讲义、学习路线图、摘要和学习报告"
+    user_request: "继续课程并批改我的答案"
+    when_to_call: "基于导航开始或继续教学、作答、答疑、记笔记或调整路线"
+    invocation: "导航 verify → start/resume → prepare-lesson → publish-lesson → check-answers/submit-chat-answer → review-answers → questions → 用户明确无疑问 → prepare-lesson"
+    expected_output: "中文课程、双图学习路线、逐课总结与报告、确认后的笔记和规律型错题本"
 ```
 
-入口为 `runtime/.venv/Scripts/python.exe skills/beta-interactive-tutor/scripts/cli.py`。多份资料须先由 `beta-build-curriculum-navigation` 生成 v2 导航 JSON、同名 Markdown 和 `.sources/`，再用 `supply-navigation` 恢复。脚本校验导航与来源，按当前单元生成证据包及紧凑决策模板；Agent 只补 Bloom 层级、少量讲解与题目、证据 ID 和必要的批改判断。脚本渲染讲义、答案栏、表格、摘要和报告。可选 v2 学习档案优先取请求路径，否则使用导航引用；双语术语表须显式提供，可用 `init-bilingual-glossary --file <terms.md>` 生成 `Source term`、`Target term`、`Note` 三列表格模板，项目单列术语表不能充当译法。批改模板中的得分、反馈和下一步动作必须由 Agent 填写。正式 Markdown 和最终报告 JSON 位于 `outputs/beta-interactive-tutor/runs/<run-id>/`，状态、快照及中间决策位于 `logs/beta-interactive-tutor/runs/<run-id>/`。
+默认每课最多 3 个知识点、3 道正式选择题、2 道问答题，每个本课知识点均需正式习题检验。引导和追问不计入。良好 ≥80%、中等 ≥60%、其余一般，无评分证据单列。配置与播客占位开关位于 Skill 的 `config.yaml`，冻结、更新及通知规则同导航。
 
-状态机按 `initialized → input_mode_detected → navigation_bundle_validated → student_profile_loaded → glossary_snapshot_ready → learning_queue_ready → unit_selected → evidence_bundle_ready → lesson_decision_required → awaiting_answer → review_decision_required → review_applied → completed` 推进；多资料、导航不一致、来源或档案变化以及用户暂停进入相应 `paused_*` 状态。使用 `status` 查看、`resume` 恢复、`verify` 检查，退出码遵循本说明书。旧项目的学习工程布局不在此测试版的恢复范围内。
+状态为 `ready → lesson_decision_required → awaiting_answer → review_decision_required → awaiting_questions → ready/completed`。批改后先反馈掌握优缺点并更新文档，询问疑问；用户明确没有疑问前，不准备下一课。笔记先展示整理稿，确认后写入；错题自动归并薄弱点、规律、纠正与例题。
+
+项目根目录只留 `项目.json`、`学习路线.md`、`总结.md`、`学习报告.md`、`笔记本.md`、`错题本.md`；课程在 `课程/课程_X-Y.md`，其余 JSON 在 `artifacts/` 和 `artifacts/lessons/`。先落盘 JSON（含参考答案）再渲染 Markdown，题目视图不显示答案。运行状态与中间模板继续位于日志目录。支持 `plan`、`skip/restore`、`supply-navigation` 维护计划、消费网页指令和同步双图。完整 CLI 及模板契约见 `skills/beta-interactive-tutor/SKILL.md`。 未发布课程可退回规划拆分，恢复后重新发布保留旧版本；显式跳过当前未批改课程允许选择后续课程，已经作答仍先批改并答疑。笔记确认同时校验草稿与来源哈希，每个薄弱知识点都有错题归纳。
 
 ### build-word-entry
 
@@ -306,6 +302,15 @@ scenario_examples:
     when_to_call: "用户要求转换 EPUB 或继续既有转换运行时"
     invocation: "start --to md → verify"
     expected_output: "生成经过验证的 Markdown 文件，不覆盖已有目标文件"
+  - id: convert-document-to-markdown
+    user_request: "把这个本地 PDF 或 Word 文档转成 Markdown"
+    when_to_call: "用户提供本地 DOC、DOCX、PDF 并要求转 Markdown 时"
+    invocation: "start --to md → status/resume → verify"
+    expected_output: "在对应 run 的 mineru/ 子目录交付完整 MinerU 解析包"
 ```
+
+DOC/DOCX/PDF → Markdown 使用 MinerU v4 精准解析 API，根目录 `.env` 配置 `MINERU_API_KEY`，进程环境变量优先。仅支持本地文件；此分支固定发布到 `outputs/format-conversion-master/runs/<run-id>/mineru/`，完整保留 `full.md`、图片及所有解析 JSON，不接受外部 `--output`。EPUB 接口保持兼容。
+
+MinerU 状态机为 `prepared → validating_input → staging_input → checking_configuration → requesting_upload → uploading → polling → downloading → extracting → preparing_markdown → verifying → publishing → completed`。脚本负责上传、轮询、下载、安全解压及全包校验；暂停后依据 `resume_stage` 继续，查询已有批次，提交结果不明确时不重提。完整参数、签名地址中断处理及退出码见 Skill 契约。运行状态、中间包和回执均保存于对应 `logs/` 目录；转换无需 Agent 生成正文。
 
 词汇星图的葫芦排程改由共享 `utils/scripts/hulu_schedule.py` 应用状态机负责，旧独立 skill 移至 `tmp/schedule-hulu-plan/`，不注册、不参与运行链。拼写关系维护使用 `skills/build-word-entry/scripts/spelling_relations.py start --full`，支持增量 `start`、`status`、`resume`、`verify`；通用实现和 Schema 位于 `utils/`，全量／增量均无需 Agent 判断。
