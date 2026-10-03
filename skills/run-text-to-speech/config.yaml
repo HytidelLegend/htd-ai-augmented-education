@@ -1,0 +1,77 @@
+schema_version: 2
+
+# 本地安装 Edge 客户端，合成需联网；可改为 volcengine。
+backend: edge-tts
+
+synthesis_text:
+  # 段落前没有句末标点时，用该字符补全后再连接下一段。
+  missing_sentence_ending: "。"
+
+batching:
+  # 基准范围对应 speech_rate: 0。实际范围按 (1 + speech_rate / 100) 缩放。
+  base_min_chars: 80
+  base_max_chars: 120
+  target_duration_seconds: 30
+  count_whitespace: false
+  count_punctuation: true
+  boundary_priority:
+    - paragraph
+    - sentence_end
+    - question
+    - exclamation
+    - semicolon
+    - colon
+    - comma
+
+preview:
+  enabled: true
+  # 达到该时长后，在首个完整句末结束试听；不是 batch 长度估算参数。
+  duration_seconds: 30
+
+boundary_pause_ms:
+  paragraph: 0
+  sentence_end: 0
+  question: 0
+  exclamation: 0
+  semicolon: 0
+  colon: 0
+  comma: 0
+
+diagnostics:
+  # 仅告警，不影响完成状态；用于发现模型自行生成的异常长停顿。
+  long_gap_warning_ms: 700
+
+audio:
+  format: mp3
+  sample_rate: 24000
+  speech_rate: 10
+  loudness_rate: 0
+  emotion: null
+  emotion_scale: 4
+  enable_timestamp: true
+
+white_noise:
+  # 只在 clean 音频的持续静音区间循环播放；音量表示白噪音自身的目标 RMS。
+  enabled: true
+  volume_dbfs: -70.0
+  asset_path: utils/assets/white-noise.wav
+  silence_threshold_dbfs: -60.0
+  minimum_silence_ms: 120
+  detection_window_ms: 10
+  fade_ms: 15
+  mp3_bitrate_kbps: 96
+
+api:
+  url: https://openspeech.bytedance.com/api/v3/tts/unidirectional
+  default_resource_id: seed-tts-2.0
+  default_icl_resource_id: seed-icl-2.0
+  timeout_seconds: 60
+  max_retries: 3
+  retry_backoff_seconds: 1
+
+output:
+  default_root: outputs/run-text-to-speech/runs
+  directory_prefix: tts_
+  clean_audio_stem: full_clean
+  full_audio_stem: full_with_white_noise
+  timestamp_schema_version: "1.1"

@@ -276,7 +276,7 @@ def build_navigation(
     }
 
 
-def validate_navigation(navigation: dict[str, Any], *, schema_path: Path, root: Path, verify_sources: bool = True) -> dict[str, Any]:
+def validate_navigation(navigation: dict[str, Any], *, schema_path: Path, root: Path, verify_sources: bool = True, material_paths: dict[str, Path] | None = None) -> dict[str, Any]:
     validate_json_schema(navigation, schema_path)
     _topological_order([dict(item) for item in navigation["units"]])
     source_map = {item["source_id"]: item for item in navigation["sources"]}
@@ -288,11 +288,11 @@ def validate_navigation(navigation: dict[str, Any], *, schema_path: Path, root: 
     structures: dict[str, dict[str, Any]] = {}
     if verify_sources:
         for source_id, source in source_map.items():
-            path = root / source["path"]
+            path = material_paths[source['path']] if material_paths is not None else root / source["path"]
             if not path.is_file():
                 errors.append(f"来源不存在：{source['path']}")
                 continue
-            structure = extract_markdown_structure(path, root=root, preview_chars=0)
+            structure = extract_markdown_structure(path, root=root, preview_chars=0, identity_path=source['path'])
             structures[source_id] = structure
             if structure["sha256"] != source["sha256"]:
                 errors.append(f"来源哈希已变化：{source['path']}")
@@ -330,6 +330,8 @@ def validate_navigation(navigation: dict[str, Any], *, schema_path: Path, root: 
                 errors.append(f"定位不能唯一解析：{unit['unit_id']}")
             images = {item["figure_id"]: item for item in structure["images"]}
             for visual in unit["visual_references"]:
+                if visual['source_id'] != source['source_id'] or visual['source_path'] != source['path']:
+                    errors.append(f"图片来源与知识点来源不一致：{visual['figure_id']}")
                 image = images.get(visual["figure_id"])
                 if image is None or image["reference_hash"] != visual["reference_hash"]:
                     errors.append(f"图片定位失效：{visual['figure_id']}")

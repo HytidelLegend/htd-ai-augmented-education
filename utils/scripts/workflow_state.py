@@ -10,13 +10,15 @@ from jsonschema import Draft202012Validator
 
 try:
     from .file_transaction import project_lock
-    from .jsonl_store import append_jsonl
-    from .structured_io import read_json, write_json
+    from .jsonl_store import append_jsonl, read_jsonl
+    from .structured_io import read_json
+    from .run_state import write_json
     from .timestamp import iso_timestamp
 except ImportError:  # Support project scripts that add utils/scripts directly to sys.path.
     from file_transaction import project_lock
-    from jsonl_store import append_jsonl
-    from structured_io import read_json, write_json
+    from jsonl_store import append_jsonl, read_jsonl
+    from structured_io import read_json
+    from run_state import write_json
     from timestamp import iso_timestamp
 
 
@@ -137,8 +139,11 @@ class WorkflowStateStore:
         to_status: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
-        state["event_sequence"] = int(state.get("event_sequence", 0)) + 1
         now = iso_timestamp()
+        event_path = self.events_dir / f"{now[:10]}.jsonl"
+        persisted = max((int(row.get("sequence", 0)) for row in read_jsonl(event_path)
+                         if row.get("run_id") == self.run_id), default=0)
+        state["event_sequence"] = max(int(state.get("event_sequence", 0)), persisted) + 1
         payload = {
             "timestamp": now,
             "run_id": self.run_id,

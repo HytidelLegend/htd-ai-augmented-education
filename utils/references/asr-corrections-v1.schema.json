@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "asr-corrections-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "source_sha256", "corrections"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "corrections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item_start", "item_end", "replacement_text"],
+        "properties": {
+          "item_start": {"type": "integer", "minimum": 0},
+          "item_end": {"type": "integer", "minimum": 1},
+          "replacement_text": {"type": "string", "minLength": 1},
+          "reason": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

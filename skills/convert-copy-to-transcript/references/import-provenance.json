@@ -1,0 +1,198 @@
+{
+  "package": "convert-copy-to-transcript",
+  "created_at": "2026-10-03T08:43:05",
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "4719692ca32d39a004944b6b95c7d5134337cea995922a87e394c24e9cc9f329",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "93b714dd22a6cf4669218ebcd081bc03677f70c75ed761b0a9826fceb50c8a08",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "assets/approval-receipt.template.json",
+      "sha256": "719505eda308a60275c577c61dc081ebb51346055da4066a58511dfbee7a64ba",
+      "source": ".agents/.backup/convert-copy-to-transcript/assets/approval-receipt.template.json",
+      "source_sha256": "719505eda308a60275c577c61dc081ebb51346055da4066a58511dfbee7a64ba"
+    },
+    {
+      "path": "assets/semantic-decisions.template.json",
+      "sha256": "0fad9371a6d79b3ee34ff4a7e42a0df3b379ab2c291f537fe7bc0d531d11b46a",
+      "source": ".agents/.backup/convert-copy-to-transcript/assets/semantic-decisions.template.json",
+      "source_sha256": "0fad9371a6d79b3ee34ff4a7e42a0df3b379ab2c291f537fe7bc0d531d11b46a"
+    },
+    {
+      "path": "pytest.ini",
+      "sha256": "4b9b9217b4b832b059cb7576a3743fbfe79adc3f40317b89e217f6b7b181b462",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "README.md",
+      "sha256": "ece0f3ee5fee1978ebc7006730f68f252abc66cbd10ff2ffc7e4db97231fc759",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "requirements-dev.txt",
+      "sha256": "4163bb2f842cc0633fc3e4204d5b4bc873a18cb5c9b06b762718ce9cdd624b5d",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "c6510e2d2bfbd08ae31ee9d1042c91e2d748cca5b1c58a6fd879ae32f5fb073c",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "scripts/convert_copy_to_transcript.py",
+      "sha256": "54d95d4b8c463a348e6fd0ec3624e276ab766dff0d16c8526dffa4fda3202427",
+      "source": ".agents/.backup/convert-copy-to-transcript/scripts/convert_copy_to_transcript.py",
+      "source_sha256": "ebff1ecc846692b805ed88c8bcb9f03b32fec8c7896a0d8a84842dbae22d470b"
+    },
+    {
+      "path": "scripts/rule_scanner.py",
+      "sha256": "531c7e89b6dbf6a777975582e5700669e052a389289f60d76b9a2a51bd841bdb",
+      "source": ".agents/.backup/convert-copy-to-transcript/scripts/rule_scanner.py",
+      "source_sha256": "531c7e89b6dbf6a777975582e5700669e052a389289f60d76b9a2a51bd841bdb"
+    },
+    {
+      "path": "scripts/transcript_renderer.py",
+      "sha256": "ef8d12f7682da799405e4d2153ae6ac2af13bf70e3761b5e9b218cddb501e3b5",
+      "source": ".agents/.backup/convert-copy-to-transcript/scripts/transcript_renderer.py",
+      "source_sha256": "ef8d12f7682da799405e4d2153ae6ac2af13bf70e3761b5e9b218cddb501e3b5"
+    },
+    {
+      "path": "scripts/transcript_validator.py",
+      "sha256": "efc4a7cdc2c97c1e2dd8a9bcda6f74f1f3c56d9a29292e3499eeaaf6cd837a1d",
+      "source": ".agents/.backup/convert-copy-to-transcript/scripts/transcript_validator.py",
+      "source_sha256": "efc4a7cdc2c97c1e2dd8a9bcda6f74f1f3c56d9a29292e3499eeaaf6cd837a1d"
+    },
+    {
+      "path": "scripts/verify_package.py",
+      "source": null,
+      "source_sha256": null,
+      "sha256": "1721965f7274ab05a04ba68bb328ada2de53a76d38bb38066016750a648258ad"
+    },
+    {
+      "path": "SKILL.md",
+      "sha256": "40c72e047945af8d77be485fbbae3ca8943551c9087f7c289c53e5187f916217",
+      "source": ".agents/.backup/convert-copy-to-transcript/SKILL.md",
+      "source_sha256": "2bff2e70e78758e39cc86dd3d4f11d5f60187989fe29a146d30f65cd4a8639cc"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "61d917466d000f076e8c5ed631cbc461fbb128df7dc8b8dfc89aed11143b7a1e",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "tests/test_convert_copy_to_transcript.py",
+      "sha256": "af60a7f4388d5a00310ed24ce1aa0c088384d849cd70ffbd783575067d637fad",
+      "source": ".agents/.backup/convert-copy-to-transcript/tests/test_convert_copy_to_transcript.py",
+      "source_sha256": "af60a7f4388d5a00310ed24ce1aa0c088384d849cd70ffbd783575067d637fad"
+    },
+    {
+      "path": "utils/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "utils/references/artifact-manifest-v1.schema.json",
+      "sha256": "6e1f248e08cf6dba45fc514af4e69213c6cf7c75961beb83c46097e5839eb522",
+      "source": "utils/references/artifact-manifest-v1.schema.json",
+      "source_sha256": "6e1f248e08cf6dba45fc514af4e69213c6cf7c75961beb83c46097e5839eb522"
+    },
+    {
+      "path": "utils/references/tts-pipeline-manifest-v1.schema.json",
+      "sha256": "8f3299b265b683a573067ef1c9ae3743eb8e78b009280007c3fb91e03be8f3eb",
+      "source": "utils/references/tts-pipeline-manifest-v1.schema.json",
+      "source_sha256": "8f3299b265b683a573067ef1c9ae3743eb8e78b009280007c3fb91e03be8f3eb"
+    },
+    {
+      "path": "utils/references/workflow-state-v1.schema.json",
+      "sha256": "e84a373b7ba26f0aca9948119d08fc768da83624af8c60cf4000379cd4f8edf2",
+      "source": "utils/references/workflow-state-v1.schema.json",
+      "source_sha256": "e84a373b7ba26f0aca9948119d08fc768da83624af8c60cf4000379cd4f8edf2"
+    },
+    {
+      "path": "utils/scripts/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "utils/scripts/artifact_manifest.py",
+      "sha256": "c9ae71d16cc7d69b354158ae4c4eaa850d589e91c9070f80536d73cb4f1bb6b7",
+      "source": "utils/scripts/artifact_manifest.py",
+      "source_sha256": "c9ae71d16cc7d69b354158ae4c4eaa850d589e91c9070f80536d73cb4f1bb6b7"
+    },
+    {
+      "path": "utils/scripts/file_transaction.py",
+      "sha256": "9b0d5019d9c9517f30030d35d94dfa5cf34b4c892f2301e4d6adfda92a384aa7",
+      "source": "utils/scripts/file_transaction.py",
+      "source_sha256": "9b0d5019d9c9517f30030d35d94dfa5cf34b4c892f2301e4d6adfda92a384aa7"
+    },
+    {
+      "path": "utils/scripts/jsonl_store.py",
+      "sha256": "172e48cfa6c80b3bd63b6bdf5e5e583527c298f02b413814b22df6167e2cd50d",
+      "source": "utils/scripts/jsonl_store.py",
+      "source_sha256": "172e48cfa6c80b3bd63b6bdf5e5e583527c298f02b413814b22df6167e2cd50d"
+    },
+    {
+      "path": "utils/scripts/markdown_transcript_filter.py",
+      "sha256": "664e3fc4445e02bcde0f9e83b02d9c91bc91a484622a71c07b638771f8acd6ac",
+      "source": "utils/scripts/markdown_transcript_filter.py",
+      "source_sha256": "664e3fc4445e02bcde0f9e83b02d9c91bc91a484622a71c07b638771f8acd6ac"
+    },
+    {
+      "path": "utils/scripts/run_state.py",
+      "sha256": "429c3cfe14d86d716aec8ede06537d1d1169fadc2ec727576d0e8a41340d9a09",
+      "source": "utils/scripts/run_state.py",
+      "source_sha256": "429c3cfe14d86d716aec8ede06537d1d1169fadc2ec727576d0e8a41340d9a09"
+    },
+    {
+      "path": "utils/scripts/speech_pause_markers.py",
+      "sha256": "ce39a8c362b086d4b0b3c6f00adea5a098e1d9f60c8b2fc0e0a136e2ef07e6ea",
+      "source": "utils/scripts/speech_pause_markers.py",
+      "source_sha256": "ce39a8c362b086d4b0b3c6f00adea5a098e1d9f60c8b2fc0e0a136e2ef07e6ea"
+    },
+    {
+      "path": "utils/scripts/structured_io.py",
+      "sha256": "1396bddf2aa138cad4a01922f1163a698f5557d629fceafffde681f0e18dc7a8",
+      "source": "utils/scripts/structured_io.py",
+      "source_sha256": "1396bddf2aa138cad4a01922f1163a698f5557d629fceafffde681f0e18dc7a8"
+    },
+    {
+      "path": "utils/scripts/text_input.py",
+      "sha256": "d09d7e21a4bb6e0ceebb828442356aa20bb3ad91e1219de1d9c00f1bdd1788ab",
+      "source": "utils/scripts/text_input.py",
+      "source_sha256": "d09d7e21a4bb6e0ceebb828442356aa20bb3ad91e1219de1d9c00f1bdd1788ab"
+    },
+    {
+      "path": "utils/scripts/timestamp.py",
+      "sha256": "e22e24205823ec1c4ee602c7ac6440beccf72d6d677463ca5cab86d1260c6115",
+      "source": "utils/scripts/timestamp.py",
+      "source_sha256": "e22e24205823ec1c4ee602c7ac6440beccf72d6d677463ca5cab86d1260c6115"
+    },
+    {
+      "path": "utils/scripts/tts_workspace.py",
+      "sha256": "a34b818b152ae7aa82ebfe7b71fe0375e2126d06e4c2a1a7c05f2d1ec7cd9a82",
+      "source": "utils/scripts/tts_workspace.py",
+      "source_sha256": "a34b818b152ae7aa82ebfe7b71fe0375e2126d06e4c2a1a7c05f2d1ec7cd9a82"
+    },
+    {
+      "path": "utils/scripts/workflow_state.py",
+      "sha256": "0d3aecf9ea1669d56bda6c116eec4b0ef54001160764a362f06a983738df777e",
+      "source": "utils/scripts/workflow_state.py",
+      "source_sha256": "0d3aecf9ea1669d56bda6c116eec4b0ef54001160764a362f06a983738df777e"
+    }
+  ]
+}

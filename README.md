@@ -98,3 +98,5 @@
 - 商业用途需要单独授权。
 
 申请授权请发送邮件至：hytidel333@gmail.com。
+
+语音工具现已注册：`run-speech-to-text`（语音转文字）、`convert-copy-to-transcript`（文案朗读适配）、`run-text-to-speech`（语音合成）。ASR 热词复用共享术语表，三个 Skill 以独立 run 和已批准稿哈希衔接；调用方法见 [Skills 说明书](docs/Skills_说明书.md)。

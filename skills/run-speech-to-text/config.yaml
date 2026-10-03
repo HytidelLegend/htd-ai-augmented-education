@@ -1,0 +1,32 @@
+schema_version: 1
+
+asr:
+  provider: volcengine
+  implementation: streaming
+  default_hotwords_path: utils/references/术语表.txt
+  credential_env: VOLCENGINE_API_KEY
+  max_duration_ms: 18000000
+  max_audio_bytes: 536870912
+  audio:
+    codec: libmp3lame
+    sample_rate: 16000
+    channels: 1
+    bitrate: 32k
+  implementations:
+    streaming:
+      endpoint: wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async
+      resource_id: volc.seedasr.sauc.duration
+      request_timeout_seconds: 600
+      max_attempts: 3
+      chunk_duration_ms: 200
+      send_interval_seconds: 0.2
+      enable_nonstream: true
+      result_type: full
+    recording_file:
+      submit_endpoint: https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit
+      query_endpoint: https://openspeech.bytedance.com/api/v3/auc/bigmodel/query
+      resource_id: volc.seedasr.auc
+      request_timeout_seconds: 600
+      poll_interval_seconds: 2
+      poll_timeout_seconds: 10800
+      max_attempts: 3

@@ -37,13 +37,15 @@ def render_source_fragment_markdown(fragment: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def load_navigation_bundle(root: Path, navigation_json: Path) -> dict[str, Any]:
+def load_navigation_bundle(root: Path, navigation_json: Path, material_project: Path | None = None) -> dict[str, Any]:
     root = root.resolve()
     navigation_json = navigation_json.resolve()
     navigation = read_json(navigation_json)
     schema = CODE_ROOT / "utils/references/learning-navigation-v2.schema.json"
     try:
-        validate_navigation(navigation, schema_path=schema, root=root, verify_sources=True)
+        from .learning_material_backup import verify_backup
+        paths = verify_backup(root, material_project, navigation) if material_project is not None else None
+        validate_navigation(navigation, schema_path=schema, root=root, verify_sources=True, material_paths=paths)
     except Exception as exc:
         raise NavigationBundleError(str(exc)) from exc
 

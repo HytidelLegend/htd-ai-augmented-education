@@ -2,6 +2,22 @@
 
 项目默认使用 `runtime/` 下的隔离环境。下列命令以 Windows PowerShell 为例，请从项目根目录执行。
 
+## 环境变量配置
+
+1. 将项目根目录下的 `.env.example` 复制为同目录的 `.env`。
+2. 在 [MinerU API key 管理页面](https://mineru.net/apiManage/token) 获取 API key，填写 `.env` 中的 `MINERU_API_KEY`。
+3. 使用 ASR 或选择火山引擎 TTS 时，在 [火山引擎 API key 管理页面](https://console.volcengine.com/speech/new/setting/apikeys) 获取 API key，填写 `.env` 中的 `VOLCENGINE_API_KEY`。
+
+`.env` 含本地凭据，不应提交 Git。
+
+## 文字转语音音色准备
+
+`run-text-to-speech` 默认使用本地安装的 `edge-tts==7.2.8` 客户端，默认晓艺、语速 `+10%`；合成需要访问 Microsoft 在线服务，无需 API key 或 Edge 浏览器。本次运行可用 `start --backend volcengine --speaker 哆啦A梦`，也可在 skill 的 `config.yaml` 设置 `backend: volcengine`；本次参数优先，恢复使用配置快照。选择火山后，严格检查根目录 `.env` 的 `VOLCENGINE_API_KEY`，忽略同名进程环境变量。
+
+火山引擎分支使用音色 ID。先在 [火山引擎音色克隆页面](https://console.volcengine.com/speech/new/experience/clone) 克隆音色，再到 [音色库](https://console.volcengine.com/speech/new/voices) 获取音色 ID，运行 skill 时通过 `--speaker <音色ID>` 指定。
+
+完整参数说明见 [run-text-to-speech 使用说明](../skills/run-text-to-speech/SKILL.md)。
+
 ## Python 环境
 
 当前使用 Python 3.11；测试版本为 Python 3.11.5。Python 依赖声明位于 `runtime/.venv/requirements.txt`，虚拟环境的实际文件不纳入 Git。
@@ -43,3 +59,9 @@ EPUB 转 PDF 功能需要 Calibre 的 `ebook-convert`。安装与检查方法见
 | Python | 3.11.5 |
 | Node.js | 20.17.0 |
 | npm | 10.8.2 |
+
+## 语音 Skill 依赖
+
+`websockets==15.0.1` 用于 ASR 流式分支，复用已有 PyYAML、jsonschema 和 python-dotenv。语音处理需要 FFmpeg/FFprobe，并支持 `FFMPEG_PATH`、`FFPROBE_PATH` 指定本机路径；否则从 PATH 查找。启动前执行对应 `verify_package.py --environment` 做本地预检。共享白噪音素材位于 `utils/assets/white-noise.wav`，由确定性脚本生成。真实 API 的资源与克隆音色权限由用户账号决定，Mock 测试不证明云端可用性。
+
+Edge-TTS 依赖已纳入上述 requirements 安装步骤。启动及 `verify_package.py --environment` 检查当前 Python 环境可导入锁定版本及 WordBoundary 接口；缺失依赖退出码为 6。网络错误在运行时暂停重试；本地预检不发起合成。

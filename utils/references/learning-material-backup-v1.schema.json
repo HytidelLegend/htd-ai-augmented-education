@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "navigation_revision", "materials"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "navigation_revision": {"$ref": "#/$defs/hash"},
+    "materials": {"type": "array", "items": {
+      "type": "object",
+      "required": ["source_id", "original_path", "backup_path", "sha256", "size_bytes", "version", "resources"],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+        "original_path": {"type": "string", "minLength": 1},
+        "backup_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/hash"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "version": {"$ref": "#/$defs/hash"},
+        "resources": {"type": "array", "items": {"$ref": "#/$defs/file"}}
+      },
+      "additionalProperties": false
+    }}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "file": {
+      "type": "object",
+      "required": ["original_path", "backup_path", "sha256", "size_bytes"],
+      "properties": {
+        "original_path": {"type": "string", "minLength": 1},
+        "backup_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/hash"},
+        "size_bytes": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  }
+}

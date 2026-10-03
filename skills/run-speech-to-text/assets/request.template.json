@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "input_path": "<填写音视频文件路径>",
+  "output_root": "outputs/run-speech-to-text/runs",
+  "language": "zh-CN"
+}

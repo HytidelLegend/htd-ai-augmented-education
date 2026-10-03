@@ -1,0 +1,210 @@
+{
+  "package": "run-speech-to-text",
+  "created_at": "2026-10-03T08:43:03",
+  "files": [
+    {
+      "path": ".env.example",
+      "sha256": "4719692ca32d39a004944b6b95c7d5134337cea995922a87e394c24e9cc9f329",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "93b714dd22a6cf4669218ebcd081bc03677f70c75ed761b0a9826fceb50c8a08",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "00_设置/hot-words.txt",
+      "sha256": "1b4d90a70be264961eaa60a1d37be1e5125736455461aeeaeafd6222f8d324f9",
+      "source": "00_设置/hot-words.txt",
+      "source_sha256": "1b4d90a70be264961eaa60a1d37be1e5125736455461aeeaeafd6222f8d324f9"
+    },
+    {
+      "path": "assets/request.template.json",
+      "sha256": "44b23224959afdf7e95b61b9a361064bbfaa0e912f044fb77b8b7d84a18e5817",
+      "source": ".agents/skills/run-speech-to-text/assets/request.template.json",
+      "source_sha256": "44b23224959afdf7e95b61b9a361064bbfaa0e912f044fb77b8b7d84a18e5817"
+    },
+    {
+      "path": "config.yaml",
+      "sha256": "04cd3b637cd4573df31e8005f76bbbc34e116007ba124d7b65cbad85a1c5301e",
+      "source": ".agents/skills/run-speech-to-text/config.yaml",
+      "source_sha256": "04cd3b637cd4573df31e8005f76bbbc34e116007ba124d7b65cbad85a1c5301e"
+    },
+    {
+      "path": "pytest.ini",
+      "sha256": "4b9b9217b4b832b059cb7576a3743fbfe79adc3f40317b89e217f6b7b181b462",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "README.md",
+      "sha256": "550eaa53d70189d4d322fb94fe66dfb9538c360f7318e7d60751e6d1fe9a697a",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "references/output.schema.json",
+      "sha256": "302adc15d9c0de99ca96ad973e55b7c412bb4d947eb672de9ba87b5e8aa66751",
+      "source": ".agents/skills/run-speech-to-text/references/output.schema.json",
+      "source_sha256": "302adc15d9c0de99ca96ad973e55b7c412bb4d947eb672de9ba87b5e8aa66751"
+    },
+    {
+      "path": "references/request.schema.json",
+      "sha256": "4b815b027f8349add552d4294f745fa53c82aa1443b44fa28dc4da7fd6e69c98",
+      "source": ".agents/skills/run-speech-to-text/references/request.schema.json",
+      "source_sha256": "4b815b027f8349add552d4294f745fa53c82aa1443b44fa28dc4da7fd6e69c98"
+    },
+    {
+      "path": "requirements-dev.txt",
+      "sha256": "4163bb2f842cc0633fc3e4204d5b4bc873a18cb5c9b06b762718ce9cdd624b5d",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "d9fc2ddf891db6aa9adf9ab8b52fd0fd4f982f7689cadeb836c8e9aeb1b0ef68",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "scripts/batch_transcripts.py",
+      "sha256": "09355872cf8961c6ff7e04be1c0487281abea48a728ce970d08c3b052fb74eab",
+      "source": ".agents/skills/run-speech-to-text/scripts/batch_transcripts.py",
+      "source_sha256": "469a949d9aaec69740d2494ad685a91ecb376538b8928ebf3ed3e72db5b00e37"
+    },
+    {
+      "path": "scripts/export_transcript_markdown.py",
+      "sha256": "1dd5d9017bad0286a61ab0ce65d07677b12366f86ac052825481498eae399f93",
+      "source": ".agents/skills/run-speech-to-text/scripts/export_transcript_markdown.py",
+      "source_sha256": "1dd5d9017bad0286a61ab0ce65d07677b12366f86ac052825481498eae399f93"
+    },
+    {
+      "path": "scripts/run_speech_to_text.py",
+      "sha256": "aca78e1e92a20b0b094e281de2e9290ea345fdfdee6883fdcf2449012d285b47",
+      "source": ".agents/skills/run-speech-to-text/scripts/run_speech_to_text.py",
+      "source_sha256": "17735fbf02c0bb846e3b9c90f942afd1a8b959af0a1a2d16def0fd7b07161ac4"
+    },
+    {
+      "path": "scripts/verify_package.py",
+      "source": null,
+      "source_sha256": null,
+      "sha256": "1721965f7274ab05a04ba68bb328ada2de53a76d38bb38066016750a648258ad"
+    },
+    {
+      "path": "SKILL.md",
+      "sha256": "b58ebf24bacd10d836b78f7c122e916bcc35356efc9a1fcef9c0674353ff3fea",
+      "source": ".agents/skills/run-speech-to-text/SKILL.md",
+      "source_sha256": "a5d833621d1617f8b6c7b77e656f56c563646313cf9a2293c35918340ab7c476"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "61d917466d000f076e8c5ed631cbc461fbb128df7dc8b8dfc89aed11143b7a1e",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "tests/test_portable_pipeline.py",
+      "source": null,
+      "source_sha256": null,
+      "sha256": "9b6219b7b09f79174afd1d8f53fa70b7e44284c0e0742834de886da174566eaa"
+    },
+    {
+      "path": "tests/test_run_speech_to_text.py",
+      "sha256": "2a573186bb546719959c18193758ac6dd76d0815633e95bb846dc43518062c83",
+      "source": ".agents/skills/run-speech-to-text/tests/test_run_speech_to_text.py",
+      "source_sha256": "3583387bd97f8a768808d04eb1d4ca4a75539f99da6c84fc0cbd40e16bd7987d"
+    },
+    {
+      "path": "utils/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "utils/references/artifact-manifest-v1.schema.json",
+      "sha256": "6e1f248e08cf6dba45fc514af4e69213c6cf7c75961beb83c46097e5839eb522",
+      "source": "utils/references/artifact-manifest-v1.schema.json",
+      "source_sha256": "6e1f248e08cf6dba45fc514af4e69213c6cf7c75961beb83c46097e5839eb522"
+    },
+    {
+      "path": "utils/references/asr-corrections-v1.schema.json",
+      "sha256": "b3c8e3a1809aebf23816dee15d5fb81735c0b18551fcbb99ad422f043c468d82",
+      "source": "utils/references/asr-corrections-v1.schema.json",
+      "source_sha256": "b3c8e3a1809aebf23816dee15d5fb81735c0b18551fcbb99ad422f043c468d82"
+    },
+    {
+      "path": "utils/scripts/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": null,
+      "source_sha256": null
+    },
+    {
+      "path": "utils/scripts/artifact_manifest.py",
+      "sha256": "c9ae71d16cc7d69b354158ae4c4eaa850d589e91c9070f80536d73cb4f1bb6b7",
+      "source": "utils/scripts/artifact_manifest.py",
+      "source_sha256": "c9ae71d16cc7d69b354158ae4c4eaa850d589e91c9070f80536d73cb4f1bb6b7"
+    },
+    {
+      "path": "utils/scripts/caption_timeline.py",
+      "sha256": "62279f38eb67e87e28a35c17fb212b25d4bd71387abdd03b4f8e959d7b2f0a6e",
+      "source": "utils/scripts/caption_timeline.py",
+      "source_sha256": "62279f38eb67e87e28a35c17fb212b25d4bd71387abdd03b4f8e959d7b2f0a6e"
+    },
+    {
+      "path": "utils/scripts/ffmpeg_plan.py",
+      "sha256": "5570df0d500a81f0e6aa641c397244e7b0e67548699ca60454b891155490d3ed",
+      "source": "utils/scripts/ffmpeg_plan.py",
+      "source_sha256": "5570df0d500a81f0e6aa641c397244e7b0e67548699ca60454b891155490d3ed"
+    },
+    {
+      "path": "utils/scripts/file_transaction.py",
+      "sha256": "9b0d5019d9c9517f30030d35d94dfa5cf34b4c892f2301e4d6adfda92a384aa7",
+      "source": "utils/scripts/file_transaction.py",
+      "source_sha256": "9b0d5019d9c9517f30030d35d94dfa5cf34b4c892f2301e4d6adfda92a384aa7"
+    },
+    {
+      "path": "utils/scripts/media_probe.py",
+      "sha256": "b5daf2e25a39cd71f81926ac94203e2d8bc3de5ba81b2e371c604d9c13e2240a",
+      "source": "utils/scripts/media_probe.py",
+      "source_sha256": "b5daf2e25a39cd71f81926ac94203e2d8bc3de5ba81b2e371c604d9c13e2240a"
+    },
+    {
+      "path": "utils/scripts/media_text_overlay.py",
+      "sha256": "81e9fe4ef63b68abfded9e301d9b5adec8aadbc28f76091fc44e925c549977bb",
+      "source": "utils/scripts/media_text_overlay.py",
+      "source_sha256": "81e9fe4ef63b68abfded9e301d9b5adec8aadbc28f76091fc44e925c549977bb"
+    },
+    {
+      "path": "utils/scripts/structured_io.py",
+      "sha256": "1396bddf2aa138cad4a01922f1163a698f5557d629fceafffde681f0e18dc7a8",
+      "source": "utils/scripts/structured_io.py",
+      "source_sha256": "1396bddf2aa138cad4a01922f1163a698f5557d629fceafffde681f0e18dc7a8"
+    },
+    {
+      "path": "utils/scripts/subprocess_runner.py",
+      "sha256": "2dd1875da6f53b2e43060063e1cc3bd2a92ebb41fbb1ee8c186487a076997d7a",
+      "source": "utils/scripts/subprocess_runner.py",
+      "source_sha256": "2dd1875da6f53b2e43060063e1cc3bd2a92ebb41fbb1ee8c186487a076997d7a"
+    },
+    {
+      "path": "utils/scripts/timestamp.py",
+      "sha256": "e22e24205823ec1c4ee602c7ac6440beccf72d6d677463ca5cab86d1260c6115",
+      "source": "utils/scripts/timestamp.py",
+      "source_sha256": "e22e24205823ec1c4ee602c7ac6440beccf72d6d677463ca5cab86d1260c6115"
+    },
+    {
+      "path": "utils/scripts/volcengine_asr.py",
+      "sha256": "09086854a3e93aea068d32575adfe56e5462106a14a896c03b9d3e7654376905",
+      "source": "utils/scripts/volcengine_asr.py",
+      "source_sha256": "09086854a3e93aea068d32575adfe56e5462106a14a896c03b9d3e7654376905"
+    },
+    {
+      "path": "utils/scripts/volcengine_streaming_asr.py",
+      "sha256": "982f00a5fcebc4c5434d3b7510093caab6e225f47a91b83278c0ac06d644eb85",
+      "source": "utils/scripts/volcengine_streaming_asr.py",
+      "source_sha256": "80d2e36e208a5fa5a54092dca44fe1b482ff561c3fbc973f24f00e50c4c19745"
+    }
+  ]
+}

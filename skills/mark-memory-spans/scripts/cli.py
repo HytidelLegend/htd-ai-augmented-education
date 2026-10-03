@@ -9,6 +9,7 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "utils" / "scripts"))
 from span_ops import apply_operations, candidate_spans, classical_clauses, classical_spans, marked_text, masked_text, normalize_text, text_sha256, validate_classical_spans, validate_cloze_alignment, validate_cloze_quality, validate_masked_text, validate_spans
 from term_glossary import load_terms, run_terms, snapshot_terms

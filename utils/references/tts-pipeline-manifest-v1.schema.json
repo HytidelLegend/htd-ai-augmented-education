@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tts-pipeline-manifest-v1.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "pipeline_run_id",
+    "workspace_dir",
+    "created_at",
+    "updated_at",
+    "components"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "1.0",
+        "2.0"
+      ]
+    },
+    "pipeline_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspace_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "layout_profile": {
+      "enum": [
+        "standalone",
+        "slides-video",
+        "education"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
+    },
+    "updated_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
+    },
+    "components": {
+      "type": "object",
+      "required": [
+        "transcript",
+        "speech"
+      ],
+      "properties": {
+        "transcript": {
+          "$ref": "#/$defs/component"
+        },
+        "speech": {
+          "$ref": "#/$defs/component"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": [
+        "status",
+        "manifest_path"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

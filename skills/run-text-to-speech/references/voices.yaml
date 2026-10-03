@@ -1,0 +1,28 @@
+schema_version: 3
+default_voice: Hytidel（正常说话）
+
+voices:
+  - name: Hytidel（正常说话）
+    speaker_id: S_IBxS5KRZ1
+    resource_id: seed-icl-2.0
+  - name: Hytidel
+    speaker_id: S_IBxS5KRZ1
+    resource_id: seed-icl-2.0
+  - name: 大雄
+    speaker_id: S_NBxS5KRZ1
+    resource_id: seed-icl-2.0
+  - name: 哆啦A梦
+    speaker_id: S_QBxS5KRZ1
+    resource_id: seed-icl-2.0
+
+edge_tts:
+  default_voice: 晓艺
+  voices:
+    - name: 晓艺
+      speaker_id: zh-CN-XiaoyiNeural
+    - name: 云扬
+      speaker_id: zh-CN-YunyangNeural
+    - name: 晓晓
+      speaker_id: zh-CN-XiaoxiaoNeural
+    - name: 云希
+      speaker_id: zh-CN-YunxiNeural

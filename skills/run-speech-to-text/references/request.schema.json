@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run-speech-to-text-request-v1.schema.json",
+  "type": "object",
+  "required": ["schema_version", "input_path"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "input_path": {"type": "string", "minLength": 1},
+    "output_root": {"type": "string", "minLength": 1},
+    "hotwords_path": {"type": "string", "minLength": 1},
+    "implementation": {"enum": ["streaming", "recording_file"]},
+    "language": {"const": "zh-CN"}
+  },
+  "additionalProperties": false
+}

@@ -15,6 +15,9 @@
     "./skills/build-word-entry",
     "./skills/beta-build-curriculum-navigation",
     "./skills/beta-interactive-tutor",
-    "./skills/project-doc-audit"
+    "./skills/project-doc-audit",
+    "./skills/run-speech-to-text",
+    "./skills/run-text-to-speech",
+    "./skills/convert-copy-to-transcript"
   ]
 }

@@ -22,3 +22,18 @@ def append_jsonl(path: Path, rows: Iterable[Mapping[str, object]], *, key_fields
                 continue
             stream.write(json.dumps(dict(row), ensure_ascii=False, sort_keys=True) + "\n")
             existing.add(key)
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    """Read object events; reject malformed checkpoints rather than skip them."""
+    if not path.exists():
+        return []
+    result = []
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if not isinstance(row, dict):
+            raise ValueError("JSONL event must be an object")
+        result.append(row)
+    return result

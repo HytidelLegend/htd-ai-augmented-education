@@ -82,6 +82,9 @@ scenario_examples:
 | `git-remote-diff` | 比较本地仓库、远端默认分支和工作区 | 需要检查 Git 同步状态时 | `python skills/git-remote-diff/scripts/cli.py start --root .` |
 | `sensitive-commit-check` | 检查提交范围中的敏感信息 | 提交、推送或发布前 | `runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py start --scope staged --supplemental all` |
 | `format-conversion-master` | 执行可恢复的格式转换 | 用户要求转换文件格式时 | `python skills/format-conversion-master/scripts/cli.py start --input input.epub --to pdf` |
+| `run-speech-to-text` | 语音转文字 | 用户要求语音转文字、提取时间戳或批量生成逐字稿时 | `start → submit-corrections（可选）→ approve-transcript → verify → deliver` |
+| `convert-copy-to-transcript` | 文案转逐字稿 | 用户要求把文案转换为口播稿、逐字稿或 TTS 输入时 | `start → apply-decisions → approve → verify → deliver` |
+| `run-text-to-speech` | 文字转语音 | 用户要求文字转语音、生成朗读音频、试听或修订已有合成语音时 | `start → 上游转换确认 → resume → 必要时 approve-preview → verify → deliver` |
 
 ## 项目功能
 
@@ -125,7 +128,17 @@ scenario_examples:
 
 ### beta-interactive-tutor
 
+未指定导航或已有导师项目时，执行 `start --root .` 或 `list-projects --root .`，共享 `utils/scripts/learning_project_selection.py` 只读发现本地导航 run，仅展示已完成且有效的导航；单候选也等待用户选择。Python 按 `learning-project-catalog-v1.schema.json` 生成“序号｜项目名称｜run ID｜更新时间｜状态｜已有导师项目数”，Agent 仅转交序号或候选 ID。有关联导师项目时再列出已有项目与“新建”选项，保留现有材料备份、作答及答疑门禁。
+
+入口状态机为 `discovering_projects → awaiting_project_selection → validating_selection → awaiting_tutor_selection（可选）→ validating_selection → project_resolved`；无候选为 `navigation_required`。等待返回退出码 3；清单变化则刷新重选。新增 `select-project`、`select-tutor` 与 `resume-selection`，清单和选择状态保存在导师 `logs/` run，支持默认发布目录及日志登记的自定义导航路径。完整字段、命令参数及恢复规则见导师 Skill。
+
+导航 run 检查点须通过 Schema 校验，同路径按最新 run 状态筛选，未完成或损坏状态不能经默认输出目录绕过筛选；同秒 run 后缀按数值排序。选择状态与清单同事务保存并支持失败回滚；恢复时清单未变则保留当前阶段与已选导航，避免重新询问第一阶段。
+
+两个学习 skill 共用 `utils/scripts/learning_material_backup.py` 和 `learning-material-backup-v1.schema.json`：导师项目在 `学习材料/` 逐字节备份 Markdown 及引用的本地资源，清单在 `artifacts/学习材料备份.json`，原文件只读。备份子状态机为 `planning_backup → awaiting_backup_approval → copying_materials → verifying_backup → backup_ready`；错误暂停并保留检查点。初次创建或旧项目补建需一次性批准路径清单，以 `resume --backup-plan-sha256 <hash>` 恢复；教学状态从 `backup_required` 转为 `ready`。已有副本的每次导航校验使用 `verify --material-project <学习项目目录>`；教学和图片指引使用副本，原文件变化通过导航增量及 `supply-navigation` 显式引入，保留材料历史版本。新资料同步同样确认计划哈希，副本损坏或目标冲突暂停处理，不自动回退源文件。
+
 必须使用已完成新版导航，删除导师独立入学诊断及直接资料入口。每次调用先执行导航校验；课程与知识点是多对多关系，两张依赖图分别维护。未显式跳过知识点必须有有效课程覆盖，课程内外顺序都满足前置约束，主线基础不能留作可选支线。
+
+备份子状态迁移由脚本校验，冲突停在 `paused_backup_conflict`；复制忽略代码示例和未使用引用定义，批准路径包括正式及历史清单。新清单与项目 JSON/Markdown 同事务发布，失败回滚；初始化失败保留待备份检查点。原始输入与写入路径重合时拒绝执行，材料产物不得进入 `runtime/` 或 `logs/`。
 
 ```yaml
 scenario_examples:
@@ -141,6 +154,10 @@ scenario_examples:
 状态为 `ready → lesson_decision_required → awaiting_answer → review_decision_required → awaiting_questions → ready/completed`。批改后先反馈掌握优缺点并更新文档，询问疑问；用户明确没有疑问前，不准备下一课。笔记先展示整理稿，确认后写入；错题自动归并薄弱点、规律、纠正与例题。
 
 项目根目录只留 `项目.json`、`学习路线.md`、`总结.md`、`学习报告.md`、`笔记本.md`、`错题本.md`；课程在 `课程/课程_X-Y.md`，其余 JSON 在 `artifacts/` 和 `artifacts/lessons/`。先落盘 JSON（含参考答案）再渲染 Markdown，题目视图不显示答案。运行状态与中间模板继续位于日志目录。支持 `plan`、`skip/restore`、`supply-navigation` 维护计划、消费网页指令和同步双图。完整 CLI 及模板契约见 `skills/beta-interactive-tutor/SKILL.md`。 未发布课程可退回规划拆分，恢复后重新发布保留旧版本；显式跳过当前未批改课程允许选择后续课程，已经作答仍先批改并答疑。笔记确认同时校验草稿与来源哈希，每个薄弱知识点都有错题归纳。
+
+导师 `学习路线.md` 新增知识点、课程双 Mermaid `flowchart LR` 思维导图，不调用生图工具。Python 从现有双图按 `utils/references/dependency-flowchart-v1.schema.json` 和 `utils/templates/dependency-flowchart.template.md` 自动构造节点与边；知识点显示名称和状态，课程显示编号、标题、主支线和状态，完整保留多前置、孤立及已跳过节点，退出课程不展示。导航、计划或状态变化时，双图随 JSON 和依赖表同事务发布；`verify` 检查图示一致性，旧项目用 `resume` 补齐。
+
+文档生成子状态机为 `prepared → validating_graphs → rendering_documents → verifying_documents → publishing → completed`；失败进入 `paused_error`，检查点在导师日志的 `document-render/state.json`。恢复读取并校验未完成检查点，保留失败和中断历史后重新校验权威 JSON；损坏检查点拒绝覆盖，不绕过教学及答疑门禁。教学状态检查点和计划模板随项目文档同事务保存，失败不推进内存模型版本。共享实现位于 `utils/scripts/mermaid_flowchart.py`，恢复能力复用 `utils/scripts/workflow_checkpoint.py`。
 
 ### build-word-entry
 
@@ -314,3 +331,54 @@ DOC/DOCX/PDF → Markdown 使用 MinerU v4 精准解析 API，根目录 `.env` �
 MinerU 状态机为 `prepared → validating_input → staging_input → checking_configuration → requesting_upload → uploading → polling → downloading → extracting → preparing_markdown → verifying → publishing → completed`。脚本负责上传、轮询、下载、安全解压及全包校验；暂停后依据 `resume_stage` 继续，查询已有批次，提交结果不明确时不重提。完整参数、签名地址中断处理及退出码见 Skill 契约。运行状态、中间包和回执均保存于对应 `logs/` 目录；转换无需 Agent 生成正文。
 
 词汇星图的葫芦排程改由共享 `utils/scripts/hulu_schedule.py` 应用状态机负责，旧独立 skill 移至 `tmp/schedule-hulu-plan/`，不注册、不参与运行链。拼写关系维护使用 `skills/build-word-entry/scripts/spelling_relations.py start --full`，支持增量 `start`、`status`、`resume`、`verify`；通用实现和 Schema 位于 `utils/`，全量／增量均无需 Agent 判断。
+
+### run-speech-to-text
+
+通过火山引擎将音视频转为带词级与句级时间戳的逐字稿；支持共享热词、本次追加词表、纠错、确认、恢复和验证。
+
+```yaml
+scenario_examples:
+- id: run-speech-to-text
+  user_request: 请把这段音频转为带时间戳的逐字稿
+  when_to_call: 用户要求语音转文字、提取时间戳或批量生成逐字稿时
+  invocation: start → submit-corrections（可选）→ approve-transcript → verify → deliver
+  expected_output: 确认后的逐字稿、毫秒时间戳及已验证的 handoff
+```
+
+统一入口为 `runtime/.venv/Scripts/python.exe skills/run-speech-to-text/scripts/cli.py`。完整状态机、专用参数、输出和恢复约定见该 Skill 契约。
+
+### convert-copy-to-transcript
+
+将 UTF-8 Markdown、纯文本文件或直接文案确定性转换为可朗读逐字稿；脚本生成语义候选、预览、差异报告与确认回执，Agent 仅填写候选读法。
+
+```yaml
+scenario_examples:
+- id: convert-copy-to-transcript
+  user_request: 请把这篇 Markdown 转成朗读逐字稿
+  when_to_call: 用户要求把文案转换为口播稿、逐字稿或 TTS 输入时
+  invocation: start → apply-decisions → approve → verify → deliver
+  expected_output: UTF-8 逐字稿预览、差异报告、批准稿与 handoff
+```
+
+统一入口为 `runtime/.venv/Scripts/python.exe skills/convert-copy-to-transcript/scripts/cli.py`。完整状态机、专用参数、输出和恢复约定见该 Skill 契约。
+
+### run-text-to-speech
+
+将本项目已完成且确认的逐字稿通过 Edge-TTS（默认）或火山引擎合成为语音；支持分批、试听确认、静音白噪音、时间戳、恢复和局部修订。
+
+本次可用 `start --backend volcengine --speaker 哆啦A梦` 覆盖后端和音色，无需改写配置；恢复使用有效配置快照。配置 `skills/run-text-to-speech/config.yaml` 的 `backend`，默认 `edge-tts`（晓艺、语速 `+10%`），需联网。火山分支严格检查根目录 `.env` 中的 `VOLCENGINE_API_KEY`；Edge 分支检查隔离环境中的 `edge-tts==7.2.8`。后端预检纳入状态机，缺失依赖或配置暂停，修复后 resume；音色映射表由 Python 从 YAML 生成，见 Skill 文档。
+
+```yaml
+scenario_examples:
+- id: run-text-to-speech
+  user_request: 请用默认音色朗读这篇文案，先给我试听
+  when_to_call: 用户要求文字转语音、生成朗读音频、试听或修订已有合成语音时
+  invocation: start → 上游转换确认 → resume → 必要时 approve-preview → verify → deliver
+  expected_output: 最终音频、clean 母版和完整时间戳；达到目标时先提供试听并等待确认
+```
+
+统一入口为 `runtime/.venv/Scripts/python.exe skills/run-text-to-speech/scripts/cli.py`。完整状态机、专用参数、输出和恢复约定见该 Skill 契约。
+
+三个语音 Skill 分别使用自己的 `outputs/<skill>/runs/<run-id>/` 与 `logs/<skill>/runs/<run-id>/`，通过九字段 `speech-handoff-v1.schema.json` 衔接。ASR 默认复用 `utils/references/术语表.txt`，本次词表只追加到运行快照；语义决策仍只填候选 ID 与 replacement，全文、差异与确认回执由脚本生成。
+
+语音流程补充：转换零语义候选自动生成稿件预览并等待确认；正常等待状态不能用 resume，错误命令不改变状态。TTS 的实际音频总时长（含停顿）严格低于试听目标时不生成试听，直接合并并验证最终音频；达到目标则保留试听确认。

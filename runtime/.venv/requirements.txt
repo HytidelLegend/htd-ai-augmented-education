@@ -5,3 +5,5 @@ pytest>=8.3,<9
 PyYAML>=6.0,<7
 python-dotenv>=1.0,<2
 playwright>=1.55,<2
+websockets==15.0.1
+edge-tts==7.2.8

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "status", "root", "created_at", "updated_at", "catalog", "selected_candidate_id", "markdown", "request"],
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "project_resolved"}}}, "then": {"required": ["result"], "properties": {"selected_candidate_id": {"type": "string"}}}},
+    {"if": {"properties": {"status": {"const": "awaiting_tutor_selection"}}}, "then": {"properties": {"selected_candidate_id": {"type": "string"}}}}
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["discovering_projects", "awaiting_project_selection", "validating_selection", "awaiting_tutor_selection", "project_resolved", "navigation_required"]},
+    "root": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"},
+    "updated_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"},
+    "catalog": {"type": "object"}, "selected_candidate_id": {"type": ["string", "null"]},
+    "markdown": {"type": "string"}, "result": {"type": "object"}, "request": {"type": "object"}
+  }
+}

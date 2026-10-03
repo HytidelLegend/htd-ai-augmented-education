@@ -111,6 +111,7 @@ def extract_markdown_structure(
     root: Path,
     preview_chars: int = 400,
     max_heading_depth: int = 6,
+    identity_path: str | None = None,
 ) -> dict[str, Any]:
     if preview_chars < 0:
         raise MarkdownStructureError("preview_chars 不能为负数")
@@ -125,6 +126,8 @@ def extract_markdown_structure(
     except ValueError as exc:
         raise MarkdownStructureError(f"输入文件必须位于项目目录内：{resolved}") from exc
     raw = resolved.read_text(encoding="utf-8-sig")
+    if identity_path is not None:
+        relative = identity_path
     frontmatter, _ = split_frontmatter(raw)
     lines = raw.splitlines()
     source_sha256 = sha256_file(resolved)

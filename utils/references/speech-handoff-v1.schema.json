@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "speech-handoff-v1.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_skill",
+    "producer_run_id",
+    "manifest_path",
+    "manifest_sha256",
+    "approved_transcript_path",
+    "approved_transcript_sha256",
+    "approval_receipt_path",
+    "approval_receipt_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "producer_skill": {
+      "enum": [
+        "convert-copy-to-transcript",
+        "run-speech-to-text"
+      ]
+    },
+    "producer_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "approved_transcript_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved_transcript_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "approval_receipt_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approval_receipt_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

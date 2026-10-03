@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "run_id": "<运行 ID>",
+  "status": "approved",
+  "approved_transcript_path": "<项目相对路径>",
+  "approved_transcript_sha256": "<SHA-256>",
+  "preview_sha256": "<确认时的预览 SHA-256>",
+  "confirmed_by": "<确认人或确认来源>",
+  "confirmed_at": "<ISO 8601 时间>",
+  "rules_version": "1.0"
+}

@@ -10,11 +10,12 @@ import json
 import re
 import subprocess
 import sys
-from .structured_io import read_json, write_json, write_text_atomic, write_json_transaction, json_digest, validate_json_schema
+from .structured_io import read_json, write_json, write_text_atomic, write_text_transaction, json_digest, validate_json_schema
 from .timestamp import iso_timestamp, unique_filename_timestamp
 from .file_transaction import project_lock
 from .dependency_graph import analyze_dependency_graph, edges_from_units
 from .learning_navigation_bundle import load_navigation_bundle
+from .learning_material_backup import ensure_backup, verify_backup, manifest_path, BackupApprovalRequired, BackupConflict, finish_backup, protect_inputs, backup_stage
 from .learning_evidence import build_evidence, resolve_heading_locator, build_navigation_context_evidence
 from .learning_config import freeze_config
 from .learning_config import load_config
@@ -23,11 +24,14 @@ from .markdown_report import markdown_table
 from .markdown_structure import sha256_file
 from .bilingual_glossary import parse_markdown as parse_bilingual
 from .student_learning_profile import parse_student_profile
+from .mermaid_flowchart import render_flowchart, verify_flowchart
+from .workflow_checkpoint import WorkflowCheckpoint
 
 ROOT = Path(__file__).resolve().parents[2]
 TUTOR = 'beta-interactive-tutor'
 STATUSES = {'pending', 'awaiting_answer', 'completed', 'retry', 'skipped'}
 TRANSITIONS = {
+    'backup_required': {'ready'},
     'ready': {'lesson_decision_required', 'completed'},
     'lesson_decision_required': {'awaiting_answer', 'ready'},
     'awaiting_answer': {'review_decision_required', 'ready'},
@@ -37,6 +41,15 @@ TRANSITIONS = {
 }
 LABELS = {'pending': '待学习', 'awaiting_answer': '正在学习', 'retry': '正在学习',
           'completed': '已学习', 'skipped': '已跳过'}
+DOCUMENT_TRANSITIONS = {
+    'prepared': ('validating_graphs',),
+    'validating_graphs': ('rendering_documents', 'paused_error'),
+    'rendering_documents': ('verifying_documents', 'paused_error'),
+    'verifying_documents': ('publishing', 'paused_error'),
+    'publishing': ('completed', 'paused_error'),
+    'completed': (),
+    'paused_error': ('validating_graphs',),
+}
 
 def dumps(value): return json.dumps(value, ensure_ascii=False, indent=2) + '\n'
 def store(path, value): write_text_atomic(path, dumps(value))
@@ -53,13 +66,14 @@ def safe_path(root, value):
     resolved.relative_to(root.resolve())
     return resolved
 
-def navigation_preflight(root, path, return_message=False):
+def navigation_preflight(root, path, return_message=False, material_project=None):
     cli = ROOT / 'skills/beta-build-curriculum-navigation/scripts/cli.py'
-    result = subprocess.run([sys.executable, str(cli), 'verify', '--root', str(root), '--navigation', str(path)],
+    extra = ['--material-project', str(material_project)] if material_project is not None else []
+    result = subprocess.run([sys.executable, str(cli), 'verify', '--root', str(root), '--navigation', str(path), *extra],
                             capture_output=True, text=True, encoding='utf-8')
     if result.returncode:
         raise ValueError('导航前置校验失败：' + result.stdout.strip())
-    bundle = load_navigation_bundle(root=root, navigation_json=path)
+    bundle = load_navigation_bundle(root=root, navigation_json=path, material_project=material_project)
     nav = bundle['navigation']
     assessment = nav.get('planning_profile', {}).get('assessment')
     if not assessment or assessment.get('status') != 'completed' or assessment.get('schema_version') != '2.0':
@@ -160,6 +174,28 @@ def classification(score, config):
     if score is None: return '未评估'
     return '良好' if score >= config['mastery']['good_min'] else '中等' if score >= config['mastery']['medium_min'] else '一般'
 
+def roadmap_graphs(model):
+    """Project the two authoritative graphs without inventing hierarchy edges."""
+    units = {'nodes': [{'id': u['unit_id'], 'label': u['title'],
+                       'status': LABELS[model['unit_progress'][u['unit_id']]['status']]}
+                      for u in model['units']],
+             'edges': [{'from': e['predecessor_id'], 'to': e['successor_id']} for e in model['unit_edges']]}
+    lessons = {'nodes': [{'id': l['lesson_id'], 'label': f"{l['number']} {l['title']}",
+                         'track': '主线' if l['track'] == 'main' else '支线', 'status': LABELS[l['status']]}
+                        for l in model['lessons'] if not l['archived']],
+               'edges': [{'from': e['predecessor_id'], 'to': e['successor_id']} for e in model['lesson_edges']]}
+    return units, lessons
+
+
+def verify_roadmap_flowcharts(model, markdown):
+    blocks = re.findall(r'^```mermaid\n.*?^```$', markdown, flags=re.MULTILINE | re.DOTALL)
+    graphs = roadmap_graphs(model)
+    if len(blocks) != len(graphs):
+        raise ValueError('学习路线必须包含知识点、课程双思维导图')
+    for graph, block in zip(graphs, blocks):
+        verify_flowchart(graph, block)
+
+
 def roadmap_md(model):
     titles = {u['unit_id']: u['title'] for u in model['units']}
     lessons = {l['lesson_id']: l for l in model['lessons']}
@@ -170,7 +206,11 @@ def roadmap_md(model):
     rows = [[l['number'], l['title'], '主线' if l['track'] == 'main' else '支线',
              '、'.join(lessons[e['predecessor_id']]['number'] for e in model['lesson_edges'] if e['successor_id'] == l['lesson_id']) or '无',
              LABELS[l['status']]] for l in model['lessons'] if not l['archived']]
-    return result + '\n\n## 课程与前置关系\n\n' + markdown_table(['课程编号', '标题', '安排', '前置课程', '学习状态'], rows) + '\n'
+    result += '\n\n## 课程与前置关系\n\n' + markdown_table(['课程编号', '标题', '安排', '前置课程', '学习状态'], rows)
+    result += '\n\n箭头表示“前置 → 后续”；已跳过节点保留依赖关系，退出的历史课程不展示。\n'
+    for title, graph in zip(('知识点思维导图', '课程思维导图'), roadmap_graphs(model)):
+        result += f'\n## {title}\n\n' + render_flowchart(graph) + '\n'
+    return result
 
 def documents(model, project, config):
     summary = {'schema_version': '2.0', 'lessons': []}
@@ -199,13 +239,48 @@ def documents(model, project, config):
     return {'学习路线': (model, roadmap_md(model)), '总结': (summary, summary_md), '学习报告': (report, report_md),
             '笔记本': ({'entries': notes}, notes_md), '错题本': ({'entries': errors}, errors_md)}
 
-def save(project, model, config):
+def _adopt_model(target, value):
+    """Adopt a committed snapshot while retaining caller-held project references."""
+    if isinstance(target, dict) and isinstance(value, dict):
+        for key in list(target):
+            if key not in value:
+                del target[key]
+        for key, item in value.items():
+            target[key] = _adopt_model(target.get(key), item)
+        return target
+    if isinstance(target, list) and isinstance(value, list):
+        target[:] = [_adopt_model(target[i] if i < len(target) else None, item)
+                     for i, item in enumerate(value)]
+        return target
+    return value
+
+
+def save(project, model, config, material_backup=None):
+    # Resume always revalidates authoritative JSON, never trusts a stale diagram.
+    workflow = WorkflowCheckpoint(DOCUMENT_TRANSITIONS, Path(model['run_dir']) / 'document-render', resume=True)
+    if workflow.state not in ('prepared', 'paused_error'):
+        workflow.move('paused_error', error='上次文档生成中断，重新校验权威数据', resume_stage='validating_graphs')
+    workflow.move('validating_graphs', source_revision=model['revision'], error=None, resume_stage=None)
+    candidate = copy.deepcopy(model)
+    try:
+        _save_documents(project, candidate, config, material_backup, workflow)
+        _adopt_model(model, candidate)
+        workflow.move('completed', published_revision=model['revision'])
+    except Exception as exc:
+        workflow.move('paused_error', error=str(exc), resume_stage='validating_graphs')
+        raise
+
+
+def _save_documents(project, model, config, material_backup, workflow):
     rebuild(model, config)
     model['revision'] += 1; model['updated_at'] = iso_timestamp()
     model['render_config'] = copy.deepcopy(config)
     validate_json_schema(model, ROOT/'utils/references/interactive-tutor-project-state-v3.schema.json')
     model['project_status'] = 'completed' if all(p['status'] in ('completed', 'skipped') for p in model['unit_progress'].values()) and all(l['status'] in ('completed', 'skipped') for l in model['lessons'] if not l['archived']) and model['state'] == 'completed' else 'in_progress'
+    workflow.move('rendering_documents')
     docs = documents(model, project, config)
+    workflow.move('verifying_documents')
+    verify_roadmap_flowcharts(model, docs['学习路线'][1])
     # Readers hold the lock, so they cannot observe a partially published revision.
     updates = {art(project, name): value for name, (value, _) in docs.items()}
     updates[project / '项目.json'] = {'schema_version': '3.0', 'project_id': model['project_id'], 'title': model['title'],
@@ -214,17 +289,46 @@ def save(project, model, config):
     for l in model['lessons']:
         if l.get('content'):
             updates[project / 'artifacts/lessons' / Path(l['filename']).with_suffix('.json')] = l
-    write_json_transaction(updates)
-    for name, (_, md) in docs.items(): write_text_atomic(project / f'{name}.md', md)
-    store(Path(model['run_dir']) / 'state.json', {'state': model['state'], 'project_dir': str(project), 'revision': model['revision']})
-    store(Path(model['run_dir']) / 'plan.template.json', {'base_revision': model['revision'], 'operations': []})
+    if material_backup is not None:
+        nav = read_json(Path(model['navigation_json']))
+        if json_digest(nav) != model['navigation_hash']:
+            raise ValueError('发布期间导航发生变化，禁止发布材料与项目数据')
+        verify_backup(Path(model['workspace_root']), project, nav, plan=material_backup)
+        if manifest_path(project).is_file():
+            previous = read_json(manifest_path(project))
+            if previous != material_backup:
+                updates[project / 'artifacts/material-backup-history' / f'{json_digest(previous)}.json'] = previous
+        updates[manifest_path(project)] = material_backup
+    # Project JSON, Markdown views and a new material manifest share one rollback.
+    text_updates = {path: dumps(value) for path, value in updates.items()}
+    text_updates.update({project / f'{name}.md': md for name, (_, md) in docs.items()})
+    text_updates[Path(model['run_dir']) / 'state.json'] = dumps({
+        'state': model['state'], 'project_dir': str(project), 'revision': model['revision']})
+    text_updates[Path(model['run_dir']) / 'plan.template.json'] = dumps({
+        'base_revision': model['revision'], 'operations': []})
+    protection = material_backup
+    if protection is None and manifest_path(project).is_file():
+        protection = read_json(manifest_path(project))
+    if protection is not None:
+        protect_inputs(Path(model['workspace_root']), protection, list(text_updates))
+    workflow.move('publishing', target_revision=model['revision'])
+    try:
+        write_text_transaction(text_updates)
+    except Exception as exc:
+        if material_backup is not None:
+            backup_stage(Path(model['run_dir']), 'paused_backup_error', error=str(exc), resume_stage='planning_backup')
+        raise
+    if material_backup is not None:
+        state_path = Path(model['run_dir']) / 'material-backup-state.json'
+        if state_path.is_file() and read_json(state_path)['state'] == 'verifying_backup':
+            finish_backup(Path(model['run_dir']), material_backup)
 
 def load(project):
     model = read_json(art(project, '学习路线'))
     validate_json_schema(model, ROOT/'utils/references/interactive-tutor-project-state-v3.schema.json')
     return model
 
-def create(root, nav_path, output=None, request=None):
+def create(root, nav_path, output=None, request=None, approved_plan_sha256=None):
     nav = navigation_preflight(root, nav_path)
     runs = root / 'logs' / TUTOR / 'runs'
     stamp = unique_filename_timestamp([p.name for p in runs.iterdir()] if runs.exists() else [])
@@ -250,7 +354,17 @@ def create(root, nav_path, output=None, request=None):
              'request': request, 'input_snapshots': snapshots, 'bilingual_terms': glossary,
              'candidate_history': [], 'candidate_orders': nav['planning_profile']['ordering']}
     project.mkdir(parents=True)
-    with lock(project): save(project, model, receipt['config'])
+    with lock(project):
+        model['material_project'] = str(project)
+        # Persist a recoverable setup checkpoint before any material publication.
+        model['state'] = 'backup_required'
+        save(project, model, receipt['config'])
+        try:
+            backup = ensure_backup(root, project, nav, run_dir, approved_plan_sha256, publish=False)
+        except BackupApprovalRequired as exc:
+            return exc.receipt
+        transition(model, 'ready', 'material_backup_verified')
+        save(project, model, receipt['config'], material_backup=backup)
     return {'status': 'ready', 'project_dir': str(project), 'run_dir': str(run_dir)}
 
 def sync_navigation(model, nav):
@@ -319,16 +433,31 @@ def apply_actions(project, model):
             transition(model, 'ready', 'current_course_explicitly_skipped')
             model['current_lesson_id'] = None
 
-def context(project, root=ROOT, preflight=True):
+def verify_input_snapshots(model, root):
+    for snapshot in model.get('input_snapshots', []):
+        path = safe_path(root, snapshot['path'])
+        if not path.is_file() or sha256_file(path) != snapshot['sha256']:
+            raise ValueError('学习档案或术语表已变化，请核对后重新创建请求')
+
+
+def context(project, root=ROOT, preflight=True, approved_plan_sha256=None):
     model = load(project)
     root = Path(model.get('workspace_root', root))
     receipt = freeze_config(TUTOR, Path(model['run_dir']))
     if preflight:
-        for snapshot in model.get('input_snapshots', []):
-            path = safe_path(root, snapshot['path'])
-            if not path.is_file() or sha256_file(path) != snapshot['sha256']:
-                raise ValueError('学习档案或术语表已变化，请核对后重新创建请求')
-        nav, nav_message = navigation_preflight(root, Path(model['navigation_json']), return_message=True)
+        verify_input_snapshots(model, root)
+        nav_path = Path(model['navigation_json'])
+        current = read_json(nav_path)
+        if manifest_path(project).is_file():
+            if json_digest(current) != model['navigation_hash']:
+                raise ValueError('导航已变化，请使用 supply-navigation 显式同步材料与导航')
+            nav, nav_message = navigation_preflight(root, nav_path, return_message=True, material_project=project)
+        else:
+            nav, nav_message = navigation_preflight(root, nav_path, return_message=True)
+            ensure_backup(root, project, nav, Path(model['run_dir']), approved_plan_sha256)
+        model['material_project'] = str(project)
+        if model['state'] == 'backup_required':
+            transition(model, 'ready', 'material_backup_verified')
         receipt['message'] = ' '.join(x for x in (nav_message, receipt['message']) if x)
         sync_navigation(model, nav)
         nav_config = load_config('beta-build-curriculum-navigation')['config']
@@ -352,11 +481,12 @@ def context(project, root=ROOT, preflight=True):
 
 def evidence_for(model, lesson, root):
     nav = read_json(Path(model['navigation_json']))
+    paths = verify_backup(root, Path(model['material_project']), nav)
     result = []
     for uid in lesson['teaches_unit_ids']:
         u = next(u for u in model['units'] if u['unit_id'] == uid)
         if u['source']:
-            path = safe_path(root, u['source']['file'])
+            path = paths[u['source']['file']]
             heading = resolve_heading_locator(root, path, u['source'])
             evidence = build_evidence(root, path, heading=heading)
         else: evidence = build_navigation_context_evidence(u, nav)
@@ -439,7 +569,11 @@ def lesson_md(model, lesson, content):
     pointers = []
     for uid in lesson['teaches_unit_ids']:
         for v in by_unit[uid].get('visual_references', []):
-            pointers.append(f"- 请到 `{v['source_path']}` 的“{v['heading_text']}”查看第 {v['image_index_in_section']} 张图：{v['purpose']}")
+            material = next((m for m in read_json(manifest_path(Path(model['material_project'])))['materials'] if m['original_path'] == v['source_path']), None)
+            if material is None:
+                raise ValueError('图片来源未登记在学习材料备份中，禁止回退到源文件')
+            display_path = material['backup_path']
+            pointers.append(f"- 请到 `{display_path}` 的“{v['heading_text']}”查看第 {v['image_index_in_section']} 张图：{v['purpose']}")
     if pointers: text += '\n## 资料图片指引\n\n' + '\n'.join(pointers) + '\n'
     return text
 
@@ -642,9 +776,11 @@ def note_confirm(model, digest, confirmed_by):
         model['notes'].append({**note, 'confirmation_state': 'confirmed', 'confirmed_by': confirmed_by, 'confirmed_at': iso_timestamp()})
 
 def verify(project, model, config):
+    verify_backup(Path(model['workspace_root']), project, read_json(Path(model['navigation_json'])))
     rebuild(model, config)
     meta = read_json(project/'项目.json')
     if meta['revision'] != model['revision']: raise ValueError('项目版本不一致')
+    verify_roadmap_flowcharts(model, (project/'学习路线.md').read_text(encoding='utf-8'))
     for name, (value, text) in documents(model, project, config).items():
         if read_json(art(project, name)) != value or (project/f'{name}.md').read_text(encoding='utf-8') != text:
             raise ValueError('JSON/Markdown 不一致：' + name)

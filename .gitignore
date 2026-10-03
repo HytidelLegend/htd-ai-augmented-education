@@ -33,3 +33,12 @@ tests/
 examples/
 
 applications/交互式学习/
+
+!skills/run-speech-to-text/tests/
+!skills/run-speech-to-text/tests/*.py
+
+!skills/run-text-to-speech/tests/
+!skills/run-text-to-speech/tests/*.py
+
+!skills/convert-copy-to-transcript/tests/
+!skills/convert-copy-to-transcript/tests/*.py

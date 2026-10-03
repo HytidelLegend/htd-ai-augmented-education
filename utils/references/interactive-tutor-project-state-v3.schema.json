@@ -38,6 +38,9 @@
     "workspace_root": {
       "type": "string"
     },
+    "material_project": {
+      "type": "string"
+    },
     "run_dir": {
       "type": "string"
     },
@@ -50,6 +53,7 @@
     },
     "state": {
       "enum": [
+        "backup_required",
         "ready",
         "lesson_decision_required",
         "awaiting_answer",

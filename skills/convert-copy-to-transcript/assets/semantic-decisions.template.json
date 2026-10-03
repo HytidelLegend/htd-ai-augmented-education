@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "run_id": "<由 prepare 填写>",
+  "decisions": [
+    {
+      "candidate_id": "SEM-001",
+      "replacement": "<只填写扫描结果允许的读法>"
+    }
+  ]
+}

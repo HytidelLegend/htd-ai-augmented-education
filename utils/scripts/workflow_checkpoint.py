@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from utils.scripts.run_state import write_json
+from utils.scripts.run_state import read_json, write_json
 from utils.scripts.timestamp import iso_timestamp, unique_filename_timestamp
 
 
@@ -19,12 +19,26 @@ def create_run_directory(root: Path) -> Path:
 
 
 class WorkflowCheckpoint:
-    def __init__(self, transitions: dict[str, tuple[str, ...]], run_dir: Path | None = None):
+    def __init__(self, transitions: dict[str, tuple[str, ...]], run_dir: Path | None = None, *, resume: bool = False):
         self.transitions = transitions
         self.run_dir = run_dir
         self.state = "prepared"
         self.history = [self.state]
         self.details: dict = {}
+        if resume and run_dir and (run_dir / 'state.json').is_file():
+            saved = read_json(run_dir / 'state.json')
+            state, history = saved.get('state'), saved.get('stateHistory')
+            if (not isinstance(state, str) or state not in transitions or not isinstance(history, list) or not history
+                    or history[0] != 'prepared' or history[-1] != state
+                    or any(not isinstance(item, str) for item in history)
+                    or any(after not in transitions.get(before, ()) for before, after in zip(history, history[1:]))):
+                raise ValueError('状态机检查点或迁移历史无效')
+            # A completed publication begins a new cycle; unfinished work keeps its history.
+            if state != 'completed':
+                self.state, self.history = state, history
+                self.details = {key: value for key, value in saved.items()
+                                if key not in ('state', 'stateHistory', 'updatedAt')}
+                return
         self._write()
 
     def move(self, state: str, **details: object) -> None:
