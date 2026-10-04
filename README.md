@@ -74,9 +74,11 @@
 
 文档入口及阅读规则详见 [AGENTS.md](AGENTS.md)。
 
+`docs/decisions/`（架构决策记录）和 `docs/PRDs/`（需求与验收）仅为本地文档，不纳入 Git 跟踪，不同步到远端仓库，新克隆仓库不包含这两个目录。公开使用说明见各 Skill 契约及下列文档。
+
 - [SOURCE_OF_TRUTH.md](SOURCE_OF_TRUTH.md)：权威来源与冲突优先级
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)：贡献者和 Agent 的行为边界
-- [项目 PRD](docs/PRDs/AI辅助教育项目.md)：目标、范围与验收
+- 本地项目 PRD：`docs/PRDs/AI辅助教育项目.md`（如存在，不同步到远端仓库）
 - [架构文档](docs/architecture/README.md)：架构文档入口
 - [Skills 说明书](docs/Skills_说明书.md)：能力、调用入口与运行约束
 - [贡献指南](docs/contributing/贡献指南.md)：贡献要求

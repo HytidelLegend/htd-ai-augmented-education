@@ -15,7 +15,8 @@ description: 回答 htd-ai-augmented-education 项目信息，并将用户任务
 - Agent 规则：`AGENTS.md`
 - 行为边界：`CODE_OF_CONDUCT.md`
 - 来源优先级：`SOURCE_OF_TRUTH.md`
-- 需求与验收：`docs/PRDs/`
+- 需求与验收：本地 `docs/PRDs/`（如存在）；缺失时依据公开 Skill 契约，并向用户澄清仍不明确的需求
+- `docs/PRDs/` 和 `docs/decisions/` 仅为本地文档，不同步到远端仓库，新克隆仓库不包含它们
 - 架构：`docs/architecture/`
 - Skill 总览与 CLI：`docs/Skills_说明书.md`
 - 贡献、安全和变更：`docs/contributing/`、`docs/security/`、`docs/更新历史.md`
