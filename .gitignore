@@ -42,3 +42,4 @@ applications/交互式学习/
 
 !skills/convert-copy-to-transcript/tests/
 !skills/convert-copy-to-transcript/tests/*.py
+/docs/decisions/
