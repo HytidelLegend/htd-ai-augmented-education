@@ -39,6 +39,18 @@ def test_missing_static_references_are_reported_once(tmp_path):
     }
 
 
+def test_local_source_directories_can_be_absent_in_a_clone(tmp_path):
+    doc = write(tmp_path, 'README.md', '`docs/PRDs/` `docs/decisions/` `docs/PRDs/local.md` `docs/decisions/local.md` `docs/public.md`')
+    assert [f['current'] for f in document_reference_findings(tmp_path, [doc])] == ['docs/public.md']
+    write(tmp_path, 'docs/PRDs/existing.md', '# Local')
+    assert {f['current'] for f in document_reference_findings(tmp_path, [doc])} == {'docs/PRDs/local.md', 'docs/public.md'}
+
+
+def test_optional_source_does_not_exempt_parent_traversal(tmp_path):
+    doc = write(tmp_path, 'README.md', '`docs/PRDs/../public.md`')
+    assert [f['current'] for f in document_reference_findings(tmp_path, [doc])] == ['docs/PRDs/../public.md']
+
+
 def test_globs_match_existing_files_and_report_empty_patterns(tmp_path):
     write(tmp_path, 'utils/references/dictionary-entry.schema.json', '{}')
     doc = write(tmp_path, 'README.md', '`utils/references/dictionary-*.schema.json` `utils/references/absent-*.json`')

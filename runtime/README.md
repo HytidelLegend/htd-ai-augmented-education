@@ -12,7 +12,7 @@
 
 ## 文字转语音音色准备
 
-`run-text-to-speech` 默认使用本地安装的 `edge-tts==7.2.8` 客户端，默认晓艺、语速 `+10%`；合成需要访问 Microsoft 在线服务，无需 API key 或 Edge 浏览器。本次运行可用 `start --backend volcengine --speaker 哆啦A梦`，也可在 skill 的 `config.yaml` 设置 `backend: volcengine`；本次参数优先，恢复使用配置快照。选择火山后，严格检查根目录 `.env` 的 `VOLCENGINE_API_KEY`，忽略同名进程环境变量。
+`run-text-to-speech` 默认使用本地安装的 `edge-tts==7.2.8` 客户端，默认晓艺、语速 `+10%`；合成需要访问 Microsoft 在线服务，无需 API key 或 Edge 浏览器。本次运行可用 `start --backend volcengine --speaker 哆啦A梦`，也可在 `skills/run-text-to-speech/config.yaml` 设置 `backend: volcengine`；本次参数优先，恢复使用配置快照。选择火山后，严格检查根目录 `.env` 的 `VOLCENGINE_API_KEY`，忽略同名进程环境变量。
 
 火山引擎分支使用音色 ID。先在 [火山引擎音色克隆页面](https://console.volcengine.com/speech/new/experience/clone) 克隆音色，再到 [音色库](https://console.volcengine.com/speech/new/voices) 获取音色 ID，运行 skill 时通过 `--speaker <音色ID>` 指定。
 

@@ -13,11 +13,13 @@
     "./skills/schedule-ebbinghaus-plan",
     "./skills/render-handwritten-essay-card",
     "./skills/build-word-entry",
-    "./skills/beta-build-curriculum-navigation",
-    "./skills/beta-interactive-tutor",
+    "./skills/build-curriculum-navigation",
+    "./skills/interactive-tutor",
     "./skills/project-doc-audit",
+    "./skills/update-project-version",
     "./skills/run-speech-to-text",
     "./skills/run-text-to-speech",
-    "./skills/convert-copy-to-transcript"
+    "./skills/convert-copy-to-transcript",
+    "./skills/create-dialogue-podcast"
   ]
 }

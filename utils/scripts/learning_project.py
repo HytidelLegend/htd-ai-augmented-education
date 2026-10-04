@@ -5,6 +5,7 @@ before its deterministic Markdown views. Answers are the only editable blocks.
 """
 from __future__ import annotations
 from pathlib import Path
+from contextlib import contextmanager
 import copy
 import json
 import re
@@ -26,19 +27,36 @@ from .bilingual_glossary import parse_markdown as parse_bilingual
 from .student_learning_profile import parse_student_profile
 from .mermaid_flowchart import render_flowchart, verify_flowchart
 from .workflow_checkpoint import WorkflowCheckpoint
+from . import learning_content as content_tools
+from . import learning_route
+from . import learning_question_quality as question_quality
+from . import learning_teaching_quality as teaching_quality
+from . import learning_review_delivery as review_delivery
 
 ROOT = Path(__file__).resolve().parents[2]
-TUTOR = 'beta-interactive-tutor'
+TUTOR = 'interactive-tutor'
 STATUSES = {'pending', 'awaiting_answer', 'completed', 'retry', 'skipped'}
 TRANSITIONS = {
     'backup_required': {'ready'},
     'ready': {'lesson_decision_required', 'completed'},
-    'lesson_decision_required': {'awaiting_answer', 'ready'},
+    'lesson_decision_required': {'awaiting_answer', 'podcast_required', 'ready'},
+    'podcast_required': {'awaiting_answer'},
     'awaiting_answer': {'review_decision_required', 'ready'},
     'review_decision_required': {'awaiting_questions', 'review_decision_required'},
     'awaiting_questions': {'awaiting_questions', 'ready'},
     'completed': {'ready'},
 }
+TRANSITIONS['ready'].update({'lesson_plan_required', 'awaiting_route_choice', 'awaiting_branch_continuation'})
+TRANSITIONS.update({
+    'lesson_plan_required': {'ready'},
+    'processing_learning_feedback': {'adaptation_decision_required'},
+    'adaptation_decision_required': {'ready', 'awaiting_feedback_questions'},
+    'awaiting_feedback_questions': {'adaptation_decision_required'},
+    'awaiting_route_choice': {'ready'},
+    'awaiting_branch_continuation': {'ready', 'main_completed'},
+    'main_completed': {'ready', 'awaiting_branch_continuation'},
+})
+TRANSITIONS['review_decision_required'].add('processing_learning_feedback')
 LABELS = {'pending': '待学习', 'awaiting_answer': '正在学习', 'retry': '正在学习',
           'completed': '已学习', 'skipped': '已跳过'}
 DOCUMENT_TRANSITIONS = {
@@ -54,7 +72,19 @@ DOCUMENT_TRANSITIONS = {
 def dumps(value): return json.dumps(value, ensure_ascii=False, indent=2) + '\n'
 def store(path, value): write_text_atomic(path, dumps(value))
 def art(project, name): return project / 'artifacts' / f'{name}.json'
-def lock(project): return project_lock(project / 'artifacts' / '.project.lock', 'learning-project')
+@contextmanager
+def lock(project, *, allow_archived=False):
+    project = Path(project)
+    if not project.is_dir(): raise FileNotFoundError('项目目录不存在')
+    model_path = art(project, '学习路线')
+    model = read_json(model_path) if model_path.is_file() else None
+    lock_path = Path(model['run_dir'])/'.project.lock' if model else project/'artifacts/.project.lock'
+    with project_lock(lock_path, 'learning-project'):
+        if not project.is_dir(): raise FileNotFoundError('项目目录不存在')
+        if model and not allow_archived:
+            from .learning_project_management import ensure_active
+            ensure_active(Path(model['workspace_root']),model['project_id'])
+        yield
 def safe_path(root, value):
     candidate = Path(value)
     candidate = candidate if candidate.is_absolute() else root / candidate
@@ -67,7 +97,7 @@ def safe_path(root, value):
     return resolved
 
 def navigation_preflight(root, path, return_message=False, material_project=None):
-    cli = ROOT / 'skills/beta-build-curriculum-navigation/scripts/cli.py'
+    cli = ROOT / 'skills/build-curriculum-navigation/scripts/cli.py'
     extra = ['--material-project', str(material_project)] if material_project is not None else []
     result = subprocess.run([sys.executable, str(cli), 'verify', '--root', str(root), '--navigation', str(path), *extra],
                             capture_output=True, text=True, encoding='utf-8')
@@ -100,9 +130,24 @@ def initial_plan(nav):
         cid = modules[group]
         section = sum(l['chapter_id'] == cid for l in lessons) + 1
         lessons.append({'lesson_id': 'LESSON-' + json_digest([u['unit_id']])[:16], 'chapter_id': cid,
-                        'section_number': section, 'title': u['title'], 'track': 'main' if u['importance'] in ('required', 'critical_reading') else 'branch',
+                        'section_number': section, 'title': u['title'], 'track': u.get('track', 'main' if u['importance'] in ('required', 'critical_reading') else 'branch'),
                         'teaches_unit_ids': [u['unit_id']], 'internal_unit_order': [u['unit_id']],
                         'prerequisite_providers': {}, 'status': 'pending', 'archived': False, 'skip': False})
+    # Propose adjacent, same-module lessons; the user-facing planning checkpoint
+    # precedes teaching. Old navigation plans keep their historical layout.
+    if nav.get('material_points'):
+        grouped = []
+        limit = load_config(TUTOR)['config']['lesson']['max_new_units']
+        for lesson in lessons:
+            previous = grouped[-1] if grouped else None
+            if previous and previous['chapter_id'] == lesson['chapter_id'] and previous['track'] == lesson['track'] and len(previous['teaches_unit_ids']) < limit:
+                previous['teaches_unit_ids'].extend(lesson['teaches_unit_ids'])
+                previous['internal_unit_order'].extend(lesson['internal_unit_order'])
+                previous['title'] += '；' + lesson['title']
+            else:
+                lesson['section_number'] = 1 + sum(l['chapter_id'] == lesson['chapter_id'] for l in grouped)
+                grouped.append(lesson)
+        lessons = grouped
     return chapters, lessons
 
 def rebuild(model, config):
@@ -168,6 +213,13 @@ def rebuild(model, config):
     model['unit_edges'] = edges_from_units(model['units'])
     model['lesson_edges'] = edges
     model['coverage'] = providers
+    for unit in model['units']:
+        unit['track'] = ('main' if any(by_id[x]['track'] == 'main' for x in providers[unit['unit_id']]) else 'branch') if providers[unit['unit_id']] else unit.get('track', 'branch')
+    for point in model.get('material_points', []):
+        effective = 'main' if any(units[x]['track'] == 'main' for x in point['unit_ids']) else 'branch'
+        if point['track'] != effective:
+            raise ValueError('原文要点的主支线安排与课程冲突，不能静默提升暂缓支线；请调整课程或导航依赖：' + point['summary'])
+    content_tools.coverage_rows(model)
     return model
 
 def classification(score, config):
@@ -202,19 +254,20 @@ def roadmap_md(model):
     rows = [[u['title'], '、'.join(titles[x] for x in u['prerequisites']) or '无', LABELS[model['unit_progress'][u['unit_id']]['status']],
              '、'.join(lessons[x]['number'] for x in model['coverage'][u['unit_id']])] for u in model['units']]
     result = '# 学习路线\n\n请在 Web 应用「交互式学习」的「图谱页」查看课程与知识点的可交互依赖图。\n\n## 知识点与前置关系\n\n'
+    graphs = roadmap_graphs(model)
+    result += render_flowchart(graphs[0]) + '\n\n'
     result += markdown_table(['知识点', '前置知识点', '学习状态', '讲解课程'], rows)
     rows = [[l['number'], l['title'], '主线' if l['track'] == 'main' else '支线',
              '、'.join(lessons[e['predecessor_id']]['number'] for e in model['lesson_edges'] if e['successor_id'] == l['lesson_id']) or '无',
              LABELS[l['status']]] for l in model['lessons'] if not l['archived']]
-    result += '\n\n## 课程与前置关系\n\n' + markdown_table(['课程编号', '标题', '安排', '前置课程', '学习状态'], rows)
+    result += '\n\n## 课程与前置关系\n\n' + render_flowchart(graphs[1]) + '\n\n' + markdown_table(['课程编号', '标题', '安排', '前置课程', '学习状态'], rows)
     result += '\n\n箭头表示“前置 → 后续”；已跳过节点保留依赖关系，退出的历史课程不展示。\n'
-    for title, graph in zip(('知识点思维导图', '课程思维导图'), roadmap_graphs(model)):
-        result += f'\n## {title}\n\n' + render_flowchart(graph) + '\n'
+    result += content_tools.coverage_markdown(model)
     return result
 
 def documents(model, project, config):
     summary = {'schema_version': '2.0', 'lessons': []}
-    report = {'schema_version': '2.0', 'overview': model['title'], 'aspects': []}
+    report = {'schema_version': '3.0', 'overview': model['title'], 'aspects': []}
     summary_md = '# 总结\n'
     for l in model['lessons']:
         if not l.get('review') or not l.get('content'): continue
@@ -228,14 +281,12 @@ def documents(model, project, config):
         p = model['unit_progress'][u['unit_id']]
         report['aspects'].append({'unit_id': u['unit_id'], 'title': u['title'], 'mastery': p['mastery'],
                                   'classification': classification(p['mastery'], config), 'evidence_refs': p['evidence_refs']})
-    report_md = '# 学习报告\n\n' + model['title'] + '\n\n已学习内容：' + ('、'.join(l['title'] for l in model['lessons'] if l.get('review')) or '尚无完成课程') + '\n\n'
-    report_md += markdown_table(['知识点', '掌握情况', '习题依据'], [[a['title'], a['classification'], '、'.join(a['evidence_refs']) or '无'] for a in report['aspects']]) + '\n'
-    for l in model['lessons']:
-        if l.get('feedback'):
-            report_md += f"\n## 课程 {l['number']} 作答反馈\n\n{l['feedback']['strengths']}\n\n{l['feedback']['weaknesses']}\n"
+    from .learning_report import build_report, render_report
+    report = build_report(model, config, report['aspects'])
+    report_md = render_report(report)
     notes = model['notes']; errors = model['errors']
     notes_md = '# 笔记本\n' + ''.join(f"\n## {n['title']}\n\n{n['background']}\n\n{n['text']}\n\n来源：课程 {n['lesson_number']}，{n['location']}\n" for n in notes)
-    errors_md = '# 错题本\n' + ''.join(f"\n## {e['title']}\n\n薄弱点：{e['weakness']}\n\n普遍规律：{e['rule']}\n\n纠正与复习：{e['correction']}\n\n### 例题\n\n" + '\n\n'.join(f"课程 {x['lesson_number']}：{x['prompt']}\n\n我的回答：{x['answer']}\n\n参考答案：{x['reference_answer']}" for x in e['examples']) + '\n' for e in errors)
+    errors_md = '# 错题本\n' + ''.join(f"\n## {e['title']}\n\n**薄弱点：** {e['weakness']}\n\n**普遍规律：** {e['rule']}\n\n**纠正与复习：** {e['correction']}\n\n" + '\n\n'.join(f"### 例题 {i}｜课程 {x['lesson_number']}\n\n{x['prompt']}\n\n**我的回答：** {x['answer']}\n\n**参考答案：** {x['reference_answer']}" for i, x in enumerate(e['examples'], 1)) + '\n' for e in errors)
     return {'学习路线': (model, roadmap_md(model)), '总结': (summary, summary_md), '学习报告': (report, report_md),
             '笔记本': ({'entries': notes}, notes_md), '错题本': ({'entries': errors}, errors_md)}
 
@@ -256,12 +307,19 @@ def _adopt_model(target, value):
 
 
 def save(project, model, config, material_backup=None):
+    from .learning_project_management import ensure_active, mark_learning_activity
+    ensure_active(Path(model['workspace_root']), model['project_id'])
+    persisted = art(project, '学习路线')
+    if persisted.is_file():
+        # Check the last committed record before any transaction can replace logs.
+        review_delivery.verify_logs(read_json(persisted))
     # Resume always revalidates authoritative JSON, never trusts a stale diagram.
     workflow = WorkflowCheckpoint(DOCUMENT_TRANSITIONS, Path(model['run_dir']) / 'document-render', resume=True)
     if workflow.state not in ('prepared', 'paused_error'):
         workflow.move('paused_error', error='上次文档生成中断，重新校验权威数据', resume_stage='validating_graphs')
     workflow.move('validating_graphs', source_revision=model['revision'], error=None, resume_stage=None)
     candidate = copy.deepcopy(model)
+    mark_learning_activity(project, candidate)
     try:
         _save_documents(project, candidate, config, material_backup, workflow)
         _adopt_model(model, candidate)
@@ -272,12 +330,42 @@ def save(project, model, config, material_backup=None):
 
 
 def _save_documents(project, model, config, material_backup, workflow):
+    audio_publications = [l.pop('_audio_publication') for l in model['lessons'] if '_audio_publication' in l]
     rebuild(model, config)
+    if model['state'] in ('awaiting_route_choice', 'awaiting_branch_continuation', 'main_completed'):
+        learning_route.refresh(model, transition)
     model['revision'] += 1; model['updated_at'] = iso_timestamp()
     model['render_config'] = copy.deepcopy(config)
     validate_json_schema(model, ROOT/'utils/references/interactive-tutor-project-state-v3.schema.json')
     model['project_status'] = 'completed' if all(p['status'] in ('completed', 'skipped') for p in model['unit_progress'].values()) and all(l['status'] in ('completed', 'skipped') for l in model['lessons'] if not l['archived']) and model['state'] == 'completed' else 'in_progress'
+    if model['state'] == 'main_completed': model['project_status'] = 'main_completed'
     workflow.move('rendering_documents')
+    lesson_views = {}
+    for lesson in model['lessons']:
+        if lesson.get('document_version') != 2 or not lesson.get('content'): continue
+        if lesson.get('podcast', {}).get('requested') and lesson['podcast']['status'] != 'completed': continue
+        path = project / '课程' / lesson['filename']
+        existing = path.read_text(encoding='utf-8-sig') if path.is_file() else None
+        publishing = lesson.pop('_publishing', False)
+        previous = lesson['publication_history'][-1]['markdown'] if publishing and lesson.get('publication_history') else lesson['markdown_template']
+        if existing is not None and normalize_answers(existing) != normalize_answers(previous):
+            raise ValueError('教学正文已变化，仅允许编辑作答区域')
+        rendered = rendered_lesson(lesson, model)
+        sync_answers = lesson.pop('_sync_answers', False)
+        if existing is not None and not publishing and not sync_answers:
+            for q in lesson['content']['questions']:
+                pattern = r'<!-- answer:' + re.escape(q['question_id']) + r':start -->.*?<!-- answer:' + re.escape(q['question_id']) + r':end -->'
+                block = re.search(pattern, existing, re.S)
+                if block: rendered = re.sub(pattern, lambda _: block[0], rendered, flags=re.S)
+            if lesson.get('feedback_protocol'):
+                for qid in ('LEARNER_DIFFICULTY', 'LEARNER_COMMENT'):
+                    pattern = r'<!-- answer:' + qid + r':start -->.*?<!-- answer:' + qid + r':end -->'
+                    block = re.search(pattern, existing, re.S)
+                    if block: rendered = re.sub(pattern, lambda _: block[0], rendered, flags=re.S)
+        lesson['markdown_template'] = rendered
+        if sync_answers and lesson.get('answers'):
+            lesson['checked_answer_hash'] = json_digest(rendered)
+        lesson_views[path] = rendered
     docs = documents(model, project, config)
     workflow.move('verifying_documents')
     verify_roadmap_flowcharts(model, docs['学习路线'][1])
@@ -285,6 +373,7 @@ def _save_documents(project, model, config, material_backup, workflow):
     updates = {art(project, name): value for name, (value, _) in docs.items()}
     updates[project / '项目.json'] = {'schema_version': '3.0', 'project_id': model['project_id'], 'title': model['title'],
          'revision': model['revision'], 'status': model['project_status'], 'updated_at': model['updated_at'],
+         'created_at': model.get('created_at'), 'last_learning_at': model.get('last_learning_at'),
          'navigation_json': model['navigation_json'], 'route': 'artifacts/学习路线.json', 'run_dir': model['run_dir']}
     for l in model['lessons']:
         if l.get('content'):
@@ -293,7 +382,7 @@ def _save_documents(project, model, config, material_backup, workflow):
         nav = read_json(Path(model['navigation_json']))
         if json_digest(nav) != model['navigation_hash']:
             raise ValueError('发布期间导航发生变化，禁止发布材料与项目数据')
-        verify_backup(Path(model['workspace_root']), project, nav, plan=material_backup)
+        verify_backup(Path(model['workspace_root']), project, nav, plan=material_backup, staged_display=True)
         if manifest_path(project).is_file():
             previous = read_json(manifest_path(project))
             if previous != material_backup:
@@ -301,11 +390,23 @@ def _save_documents(project, model, config, material_backup, workflow):
         updates[manifest_path(project)] = material_backup
     # Project JSON, Markdown views and a new material manifest share one rollback.
     text_updates = {path: dumps(value) for path, value in updates.items()}
+    if material_backup is not None:
+        from .learning_material_backup import display_publication
+        text_updates.update(display_publication(project, material_backup))
     text_updates.update({project / f'{name}.md': md for name, (_, md) in docs.items()})
+    text_updates.update(lesson_views)
+    for path, value in review_delivery.publications(model).items():
+        text_updates[path] = dumps(value) if isinstance(value, dict) else value
+    for pending_audio in audio_publications:
+        source = project / pending_audio['source']
+        target = safe_path(project, pending_audio['target'])
+        if sha256_file(source) != pending_audio['sha256']: raise ValueError('待发布播客哈希不一致')
+        text_updates[target] = source.read_bytes()
     text_updates[Path(model['run_dir']) / 'state.json'] = dumps({
         'state': model['state'], 'project_dir': str(project), 'revision': model['revision']})
     text_updates[Path(model['run_dir']) / 'plan.template.json'] = dumps({
         'base_revision': model['revision'], 'operations': []})
+    text_updates[Path(model['run_dir']) / 'plan-context.json'] = dumps(content_tools.grouping_context(model, config))
     protection = material_backup
     if protection is None and manifest_path(project).is_file():
         protection = read_json(manifest_path(project))
@@ -321,18 +422,21 @@ def _save_documents(project, model, config, material_backup, workflow):
     if material_backup is not None:
         state_path = Path(model['run_dir']) / 'material-backup-state.json'
         if state_path.is_file() and read_json(state_path)['state'] == 'verifying_backup':
-            finish_backup(Path(model['run_dir']), material_backup)
+            finish_backup(Path(model['run_dir']), material_backup, project)
 
 def load(project):
     model = read_json(art(project, '学习路线'))
     validate_json_schema(model, ROOT/'utils/references/interactive-tutor-project-state-v3.schema.json')
     return model
 
-def create(root, nav_path, output=None, request=None, approved_plan_sha256=None):
+def create(root, nav_path, output=None, request=None, approved_plan_sha256=None, *, confirmed_name=None, creation_run=None):
+    if confirmed_name is None:
+        from .learning_project_creation import prepare
+        return prepare(root, nav_path, output, request)
     nav = navigation_preflight(root, nav_path)
     runs = root / 'logs' / TUTOR / 'runs'
     stamp = unique_filename_timestamp([p.name for p in runs.iterdir()] if runs.exists() else [])
-    run_dir = runs / stamp
+    run_dir = creation_run or runs / stamp
     project = output or root / 'outputs' / TUTOR / 'runs' / stamp
     if project.exists(): raise ValueError('项目目录已存在，请恢复原项目')
     receipt = freeze_config(TUTOR, run_dir)
@@ -346,13 +450,18 @@ def create(root, nav_path, output=None, request=None, approved_plan_sha256=None)
         else: parse_student_profile(path, schema_path=ROOT/'utils/references/student-learning-profile-v2.schema.json')
         snapshots.append({'kind': kind, 'path': str(path), 'sha256': sha256_file(path)})
     chapters, lessons = initial_plan(nav)
-    model = {'schema_version': '3.0', 'project_id': stamp, 'title': nav['title'], 'navigation_json': str(nav_path),
+    model = {'schema_version': '3.0', 'project_id': run_dir.name, 'title': confirmed_name, 'navigation_json': str(nav_path),
+             'created_at': iso_timestamp(), 'last_learning_at': None,
              'navigation_hash': json_digest(nav), 'workspace_root': str(root), 'revision': 0, 'state': 'ready', 'current_lesson_id': None,
-             'run_dir': str(run_dir), 'units': nav['units'], 'chapters': chapters, 'lessons': lessons,
+             'run_dir': str(run_dir), 'units': copy.deepcopy(nav['units']), 'chapters': chapters, 'lessons': lessons,
              'unit_progress': {u['unit_id']: {'status': 'pending', 'skip': False, 'mastery': None, 'evidence_refs': []} for u in nav['units']},
              'notes': [], 'errors': [], 'events': [], 'question_discussions': [], 'applied_actions': [],
              'request': request, 'input_snapshots': snapshots, 'bilingual_terms': glossary,
              'candidate_history': [], 'candidate_orders': nav['planning_profile']['ordering']}
+    if nav.get('material_points'):
+        model['material_points'] = copy.deepcopy(nav['material_points'])
+        model['planning_confirmed'] = False
+        model['routing_protocol'] = 1
     project.mkdir(parents=True)
     with lock(project):
         model['material_project'] = str(project)
@@ -364,12 +473,13 @@ def create(root, nav_path, output=None, request=None, approved_plan_sha256=None)
         except BackupApprovalRequired as exc:
             return exc.receipt
         transition(model, 'ready', 'material_backup_verified')
+        if model.get('planning_confirmed') is False: transition(model, 'lesson_plan_required', 'course_grouping_required')
         save(project, model, receipt['config'], material_backup=backup)
-    return {'status': 'ready', 'project_dir': str(project), 'run_dir': str(run_dir)}
+    return startup_receipt(project, model)
 
 def sync_navigation(model, nav):
     if json_digest(nav) == model['navigation_hash']: return
-    if model['state'] not in ('ready', 'completed', 'awaiting_questions'):
+    if model['state'] not in ('ready', 'completed', 'awaiting_questions', 'main_completed', 'lesson_plan_required', 'awaiting_route_choice', 'awaiting_branch_continuation'):
         raise ValueError('导航已改变；请先结束当前作答与答疑，再同步')
     old_ids = {u['unit_id'] for u in model['units']}; new_ids = {u['unit_id'] for u in nav['units']}
     for l in model['lessons']:
@@ -377,7 +487,11 @@ def sync_navigation(model, nav):
     for x in new_ids - old_ids:
         model['unit_progress'][x] = {'status': 'pending', 'skip': False, 'mastery': None, 'evidence_refs': []}
     for x in old_ids - new_ids: model['unit_progress'].pop(x, None)
-    model['units'] = nav['units']; model['navigation_hash'] = json_digest(nav)
+    model['units'] = copy.deepcopy(nav['units']); model['navigation_hash'] = json_digest(nav)
+    model['material_points'] = copy.deepcopy(nav.get('material_points', []))
+    if model['material_points']:
+        model['routing_protocol'] = 1
+        model['planning_confirmed'] = False
     old_orders = model['candidate_orders']
     if old_orders not in model.setdefault('candidate_history', []):
         model['candidate_history'].append(copy.deepcopy(old_orders))
@@ -391,9 +505,13 @@ def sync_navigation(model, nav):
                 model['chapters'].append(chapter)
             section = 1 + max((l['section_number'] for l in model['lessons'] if l['chapter_id'] == chapter['chapter_id']), default=0)
             model['lessons'].append({'lesson_id': 'LESSON-' + json_digest([u['unit_id'], section])[:16], 'chapter_id': chapter['chapter_id'],
-                'section_number': section, 'title': u['title'], 'track': 'branch', 'teaches_unit_ids': [u['unit_id']],
+                'section_number': section, 'title': u['title'], 'track': u.get('track', 'branch'), 'teaches_unit_ids': [u['unit_id']],
                 'internal_unit_order': [u['unit_id']], 'prerequisite_providers': {}, 'status': 'pending', 'archived': False, 'skip': False})
-    if model['state'] == 'completed': transition(model, 'ready', 'new_navigation')
+    if model['state'] in ('completed', 'main_completed', 'awaiting_route_choice', 'awaiting_branch_continuation'):
+        transition(model, 'ready', 'new_navigation')
+    for key in ('route_choice', 'route_selection', 'branch_session'): model.pop(key, None)
+    if model.get('planning_confirmed') is False and model['state'] == 'ready':
+        transition(model, 'lesson_plan_required', 'incremental_course_grouping_required')
 
 def apply_actions(project, model):
     path = art(project, '调整指令')
@@ -458,9 +576,10 @@ def context(project, root=ROOT, preflight=True, approved_plan_sha256=None):
         model['material_project'] = str(project)
         if model['state'] == 'backup_required':
             transition(model, 'ready', 'material_backup_verified')
+            if model.get('planning_confirmed') is False: transition(model, 'lesson_plan_required', 'course_grouping_required')
         receipt['message'] = ' '.join(x for x in (nav_message, receipt['message']) if x)
         sync_navigation(model, nav)
-        nav_config = load_config('beta-build-curriculum-navigation')['config']
+        nav_config = load_config('build-curriculum-navigation')['config']
         route_context = copy.deepcopy(nav['planning_profile'].get('route_context', {}))
         observations = {a['unit_id']: a for a in route_context.get('diagnostic_answers', [])}
         for uid, p in model['unit_progress'].items():
@@ -494,10 +613,30 @@ def evidence_for(model, lesson, root):
     return result
 
 def prepare(project, model, config, root, requested=None, allow_missing=False):
+    feedback = review_delivery.pending(model)
+    if feedback:
+        save(project, model, config)
+        return feedback
+    if model['state'] == 'ready' and model.get('planning_confirmed') is False:
+        transition(model, 'lesson_plan_required', 'course_grouping_required')
+        save(project, model, config)
+    if model['state'] == 'lesson_plan_required':
+        return {'status': model['state'], 'plan_template': str(Path(model['run_dir']) / 'plan.template.json'),
+                'markdown': roadmap_md(model), 'revision': model['revision']}
     if model['state'] == 'awaiting_questions':
         return {'status': 'awaiting_questions', 'message': '本课批改和文档已更新。你还有疑问吗？明确没有疑问后再生成下一课。'}
+    if model['state'] in ('awaiting_route_choice', 'awaiting_branch_continuation', 'main_completed'):
+        result = learning_route.refresh(model, transition)
+        if result:
+            save(project, model, config)
+            return result
     if model['state'] != 'ready': raise ValueError('当前状态不能生成下一课')
     rebuild(model, config)
+    if not requested and model.get('routing_protocol'):
+        gate = learning_route.gate(model, transition)
+        if gate:
+            save(project, model, config)
+            return gate
     pending = [l for l in model['lessons'] if not l['archived'] and not l['skip'] and l['status'] in ('pending', 'retry') and any(not model['unit_progress'][x]['skip'] for x in l['teaches_unit_ids'])]
     def missing(l): return [x for x in l['prerequisite_unit_ids'] if model['unit_progress'][x]['status'] != 'completed']
     def explicitly_skipped(uid):
@@ -508,10 +647,19 @@ def prepare(project, model, config, root, requested=None, allow_missing=False):
     selected_order = next((r for r in rank_order if r['candidate_id'] == model['candidate_orders'].get('selected_order_id')), None)
     order = (selected_order or rank_order[0])['unit_ids'] if rank_order else [u['unit_id'] for u in model['units']]
     pending.sort(key=lambda l: (l['track'] != 'main', min(order.index(x) for x in l['teaches_unit_ids'])))
+    selected = model.get('route_selection')
+    if not requested and selected: requested = selected['lesson_id']
+    if not requested and model.get('branch_session'):
+        session = set(model['branch_session']['lesson_ids'])
+        pending.sort(key=lambda l: (l['lesson_id'] not in session, min(order.index(x) for x in l['teaches_unit_ids'])))
     lesson = next((l for l in pending if l['lesson_id'] == requested), None) if requested else next((l for l in pending if all(explicitly_skipped(x) for x in missing(l))), None)
     if not lesson:
         if pending or any(p['status'] not in ('completed', 'skipped') for p in model['unit_progress'].values()):
             return {'status': 'blocked_prerequisites', 'message': '请恢复被跳过课程、重新分配知识点，或明确指定越过待学基础的课程'}
+        if model.get('material_points'):
+            for row in content_tools.coverage_rows(model):
+                if any(model['unit_progress'][uid]['skip'] for uid in row['unit_ids']): continue
+                if not any(x['degree'] == '充分讲解' for x in row['lessons']): raise ValueError('项目原文要点仍有未讲解内容')
         transition(model, 'completed', 'all_coverage_finished')
         save(project, model, config); return {'status': 'completed'}
     gaps = missing(lesson)
@@ -520,13 +668,34 @@ def prepare(project, model, config, root, requested=None, allow_missing=False):
     evidence = evidence_for(model, lesson, root)
     run = Path(model['run_dir'])
     nav = read_json(Path(model['navigation_json']))
+    question_history = question_quality.history(model, nav)
     store(run / 'evidence.json', {'lesson_id': lesson['lesson_id'], 'evidence': evidence,
           'learner_context': nav['planning_profile'].get('route_context', {}),
           'mastery_evidence': {x: model['unit_progress'][x] for x in lesson['teaches_unit_ids']},
-          'teaching_policy': nav['lesson_generation_policy'], 'request': model.get('request', {})})
+          'teaching_policy': nav['lesson_generation_policy'], 'request': model.get('request', {}),
+          'question_history': question_history, 'diagnostic_observations': nav['planning_profile'].get('assessment', {}).get('answers', []),
+          'learning_objectives': {u['unit_id']: u.get('learning_objectives', []) for u in model['units'] if u['unit_id'] in lesson['teaches_unit_ids']},
+          'material_points': [p for p in model.get('material_points', []) if set(p['unit_ids']) & set(lesson['teaches_unit_ids'])],
+          'adaptation': model.get('next_adaptation'),
+          'teaching_block_suggestions': content_tools.BLOCK_LABELS,
+          'length_reference': config['lesson'].get('reference_chars_min', 800),
+          'length_reference_max': config['lesson'].get('reference_chars_max', 1500)})
+    evidence_packet = read_json(run / 'evidence.json')
+    evidence_packet['length_scope'] = '整课课程讲解小节的正文合计；不含概述、习题、作答或反馈'
+    evidence_packet['length_policy'] = '软参考；偏短须补充或解释目标如何完整覆盖；超出上限不强制拆课'
+    evidence_packet['counting_policy'] = '可见非空白字符；排除标题、Markdown 标记与链接地址；英文按字符，代码和公式计入并单独统计'
+    evidence_packet['course_grouping_review'] = content_tools.grouping_context(model, config)
+    evidence_packet['material_quote_candidates'] = [
+        {'unit_id': e['unit_id'], 'source': Path(e['source_path']).stem,
+         'locator': e['locator'], 'text': e['text'],
+         'part_template': {'type': 'material_quote', 'evidence_id': e['evidence_id'], 'edited': False}}
+        for e in evidence if e.get('evidence_kind') == 'source_excerpt']
+    evidence_packet['ordered_list_template'] = {'type': 'ordered_list', 'items': ['', '', '']}
+    evidence_packet['context_policy'] = '默认学习者未读过材料；按上下文需要选用引用候选，引用前交代背景，引用后解释观点；步骤使用有序列表。删改只填 edited_text，脚本生成标记及来源。'
+    store(run / 'evidence.json', evidence_packet)
     tested_units = [uid for uid in lesson['teaches_unit_ids'] if not model['unit_progress'][uid]['skip']]
-    template = {'schema_version': '4.0', 'lesson_id': lesson['lesson_id'], 'overview': '', 'key_points': [], 'formulas': [],
-                'teaching_points': [{'unit_id': uid, 'text': '', 'evidence_ids': [e['evidence_id'] for e in evidence if e['unit_id'] == uid], 'external_explanation': False} for uid in lesson['teaches_unit_ids']],
+    template = {'schema_version': '7.0', 'lesson_id': lesson['lesson_id'], 'overview': '', 'key_points': [], 'formulas': [],
+                'teaching_points': [content_tools.teaching_template(uid, next(u for u in model['units'] if u['unit_id'] == uid).get('learning_objectives', []), model.get('material_points', []), [e['evidence_id'] for e in evidence if e['unit_id'] == uid]) for uid in lesson['teaches_unit_ids']],
                 'guiding_questions': [], 'questions': []}
     mc_limit = config['lesson']['max_multiple_choice_questions']
     for i, uid in enumerate(tested_units[:mc_limit]):
@@ -534,10 +703,17 @@ def prepare(project, model, config, root, requested=None, allow_missing=False):
             'reference_answer': '', 'expected_points': {uid: []}, 'evidence_ids': [e['evidence_id'] for e in evidence if e['unit_id'] == uid]})
     # One open question can assess several points, each with its own scoring rubric.
     remainder = tested_units[mc_limit:]
+    # One application question also verifies explanation/transfer for a small
+    # lesson; it is not merely overflow after exhausting MC capacity.
+    if not remainder and tested_units: remainder = tested_units
     if remainder:
         template['questions'].append({'question_id': f'Q-{mc_limit+1}', 'type': 'open_ended', 'unit_ids': remainder, 'prompt': '', 'options': [], 'correct_index': None,
             'reference_answer': '', 'expected_points': {uid: [] for uid in remainder}, 'evidence_ids': [e['evidence_id'] for e in evidence if e['unit_id'] in remainder]})
     store(run / 'lesson-decision.template.json', template)
+    if model.get('next_adaptation'):
+        template['adaptation_applied'] = {'feedback_id': model['next_adaptation']['feedback_id'], 'changes': ''}
+        store(run / 'lesson-decision.template.json', template)
+    model.pop('route_selection', None)
     model['current_lesson_id'] = lesson['lesson_id']
     transition(model, 'lesson_decision_required', 'prepare_lesson')
     save(project, model, config)
@@ -551,10 +727,11 @@ def lesson_md(model, lesson, content):
         providers = [by_id[x]['number'] for x in model['coverage'][uid]]
         p = model['unit_progress'][uid]
         rows.append([titles[uid], '、'.join('课程 '+x for x in providers) or '暂无对应课程', '已学' if p['status'] == 'completed' else '待学（已跳过）' if p['skip'] else '待学'])
-    text = f"# 课程 {lesson['number']}｜{lesson['title']}\n\n## 前置知识\n\n"
-    text += markdown_table(['知识点', '所在课程', '基础状态'], rows) if rows else '无前置知识要求。'
-    text += '\n\n## 本课学习的知识点\n\n' + '、'.join(titles[x] for x in lesson['teaches_unit_ids']) + '\n\n'
-    text += content['overview'] + '\n\n' + '\n\n'.join(p['text'] for p in content['teaching_points'])
+    template = (ROOT / 'utils/templates/interactive-tutor/lesson-v2.template.md').read_text(encoding='utf-8')
+    text = template.format(number=lesson['number'], title=lesson['title'],
+        prerequisites=markdown_table(['知识点', '所在课程', '基础状态'], rows) if rows else '无前置知识要求。',
+        knowledge_points='、'.join(titles[x] for x in lesson['teaches_unit_ids']),
+        overview=content['overview'], teaching_body='\n\n'.join(p['text'] for p in content['teaching_points'])).rstrip()
     if content['guiding_questions']: text += '\n\n## 思考与讨论\n\n' + '\n'.join('- '+x for x in content['guiding_questions'])
     text += '\n\n## 正式习题\n\n请填写下方作答区域，也可以在对话中按题号回答。\n'
     for i, q in enumerate(content['questions'], 1):
@@ -564,7 +741,8 @@ def lesson_md(model, lesson, content):
     terms = model.get('bilingual_terms', [])
     if terms:
         text += '\n## 双语术语\n\n' + markdown_table(['原文术语','中文译法','说明'], [[t['source_term'],t['target_term'],t['note']] for t in terms]) + '\n'
-    text = re.sub(r'\bunit(?:s)?\b', '知识点', re.sub(r'\blesson(?:s)?\b', '课程', text, flags=re.I), flags=re.I)
+    if content.get('schema_version') not in ('6.0', '7.0'):
+        text = re.sub(r'\bunit(?:s)?\b', '知识点', re.sub(r'\blesson(?:s)?\b', '课程', text, flags=re.I), flags=re.I)
     by_unit = {u['unit_id']: u for u in model['units']}
     pointers = []
     for uid in lesson['teaches_unit_ids']:
@@ -572,15 +750,76 @@ def lesson_md(model, lesson, content):
             material = next((m for m in read_json(manifest_path(Path(model['material_project'])))['materials'] if m['original_path'] == v['source_path']), None)
             if material is None:
                 raise ValueError('图片来源未登记在学习材料备份中，禁止回退到源文件')
-            display_path = material['backup_path']
+            display_path = material.get('display_path', material['backup_path'])
             pointers.append(f"- 请到 `{display_path}` 的“{v['heading_text']}”查看第 {v['image_index_in_section']} 张图：{v['purpose']}")
     if pointers: text += '\n## 资料图片指引\n\n' + '\n'.join(pointers) + '\n'
     return text
 
-def publish(project, model, config, decision):
+
+def rendered_lesson(lesson, model=None):
+    """Render script-owned feedback/audio and editable answer blocks from records."""
+    text = lesson.get('base_markdown', lesson['markdown_template'])
+    podcast = lesson.get('podcast', {})
+    if podcast.get('status') == 'completed':
+        heading, body = text.split('\n', 1)
+        text = heading + '\n\n' + f"[🎧 收听本课播客](../{podcast['audio_path']})\n" + body
+    for q in lesson['content']['questions']:
+        qid = q['question_id']
+        answer = lesson.get('answers', {}).get(qid)
+        if answer is not None:
+            block = f"<!-- answer:{qid}:start -->\n> **{'我的选择' if q['type'] == 'multiple_choice' else '我的回答'}：**\n>\n"
+            block += '\n'.join('> ' + line for line in answer.splitlines()) + f'\n<!-- answer:{qid}:end -->'
+            text = re.sub(r'<!-- answer:' + re.escape(qid) + r':start -->.*?<!-- answer:' + re.escape(qid) + r':end -->', lambda _: block, text, flags=re.S)
+        review = next((s for s in lesson['review']['scores'] if s['question_id'] == qid), None) if lesson.get('review') else None
+        if review:
+            titles = {u['unit_id']: u['title'] for u in model['units']} if model else {}
+            scores = '；'.join(f'{titles.get(uid, uid)}：{score:.0%}' for uid, score in review['unit_scores'].items())
+            block = f'\n\n<a id="feedback-{qid}"></a>\n<!-- feedback:{qid}:start -->\n**作答反馈：** {scores}\n\n{review["feedback"]}\n<!-- feedback:{qid}:end -->'
+            text = text.replace(f'<!-- answer:{qid}:end -->', f'<!-- answer:{qid}:end -->' + block)
+    if lesson.get('feedback'):
+        title = '本课批改总结' if lesson.get('feedback_protocol') else '本课学习反馈'
+        text += f"\n## {title}\n\n**掌握优点：** {lesson['feedback']['strengths']}\n\n**需要加强：** {lesson['feedback']['weaknesses']}\n"
+    if lesson.get('feedback_protocol'):
+        text += content_tools.feedback_markdown(lesson.get('learner_feedback'))
+    return text
+
+
+def startup_receipt(project, model):
+    links = '\n'.join(f'- [{name}]({(project / (name + ".md")).as_posix()})：{purpose}' for name, purpose in [
+        ('学习路线', '查看课程安排与前置关系'), ('总结', '复习已学内容'), ('学习报告', '查看进展、掌握证据与下一步建议'),
+        ('错题本', '复习薄弱点与纠正方法'), ('笔记本', '查看已确认笔记')])
+    current = next((l for l in model['lessons'] if l['lesson_id'] == model['current_lesson_id']), None)
+    if current and (project / '课程' / current['filename']).is_file():
+        links += f"\n- [当前课程]({(project / '课程' / current['filename']).as_posix()})：阅读讲义并填写作答区"
+    return {'status': model['state'], 'project_dir': str(project), 'run_dir': model['run_dir'],
+            'markdown': f"学习项目：{model['title']}\n\n项目路径：`{project}`\n\n请查看相关文档：\n\n{links}\n"}
+
+def publish(project, model, config, decision, *, podcast_mock=False, quality_review=None, layout_review=None):
+    feedback = review_delivery.pending(model)
+    if feedback:
+        save(project, model, config)
+        return feedback
     if model['state'] != 'lesson_decision_required': raise ValueError('请先准备课程')
     lesson = next(l for l in model['lessons'] if l['lesson_id'] == model['current_lesson_id'])
     if decision['lesson_id'] != lesson['lesson_id']: raise ValueError('决策对应课程错误')
+    if len(lesson['teaches_unit_ids']) > config['lesson']['max_new_units']:
+        raise ValueError('课程知识点超过当前配置上限，请先拆分尚未发布课程')
+    from .learning_teaching_layout import normalize
+    from . import learning_teaching_context as teaching_context
+    evidence = read_json(Path(model['run_dir']) / 'evidence.json')['evidence']
+    root = Path(model.get('workspace_root', ROOT))
+    decision = normalize(decision, model['run_dir'], evidence=evidence, root=root)
+    gate, context_record = teaching_context.evaluate(decision, evidence, root, model['run_dir'], layout_review)
+    if gate: return gate
+    if model.get('material_points') and decision['schema_version'] not in ('5.0', '6.0', '7.0'):
+        raise ValueError('新版导航课程必须使用 v5 教学块与原文要点覆盖')
+    if decision['schema_version'] in ('5.0', '6.0', '7.0'):
+        version = decision['schema_version'].split('.')[0]
+        validate_json_schema(decision, ROOT / f'utils/references/interactive-tutor-lesson-decision-v{version}.schema.json')
+        content_tools.validate_teaching(decision, lesson, model)
+        adaptation = model.get('next_adaptation')
+        if adaptation and (decision.get('adaptation_applied', {}).get('feedback_id') != adaptation['feedback_id'] or not decision.get('adaptation_applied', {}).get('changes', '').strip()):
+            raise ValueError('下一课须落实已记录的学习反馈调整')
     required = set(lesson['teaches_unit_ids']) - {x for x,p in model['unit_progress'].items() if p['skip']}
     if len(lesson['teaches_unit_ids']) > config['lesson']['max_new_units']:
         raise ValueError('课程知识点超过当前配置上限，请先拆分尚未发布课程')
@@ -595,7 +834,7 @@ def publish(project, model, config, decision):
     if sum(q['type'] == 'multiple_choice' for q in qs) > config['lesson']['max_multiple_choice_questions'] or sum(q['type'] == 'open_ended' for q in qs) > config['lesson']['max_open_ended_questions']:
         raise ValueError('正式习题超过配置上限')
     for q in qs:
-        if not re.fullmatch(r'[A-Za-z0-9_-]+', q['question_id']) or q['question_id'] in seen: raise ValueError('题目 ID 无效或重复')
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', q['question_id']) or q['question_id'] in seen or q['question_id'] in ('LEARNER_DIFFICULTY', 'LEARNER_COMMENT'): raise ValueError('题目 ID 无效、重复或占用学习反馈保留标记')
         seen.add(q['question_id'])
         if q['type'] not in ('multiple_choice','open_ended') or not q['prompt'].strip() or not q['reference_answer'].strip(): raise ValueError('题目缺少正文或参考答案')
         if not set(q['unit_ids']) <= set(lesson['teaches_unit_ids']) or not q['unit_ids'] or len(set(q['unit_ids'])) != len(q['unit_ids']): raise ValueError('题目知识点引用无效')
@@ -608,22 +847,73 @@ def publish(project, model, config, decision):
             raise ValueError('问答题不应包含选择题选项或正确选项索引')
         coverage.update(q['unit_ids'])
     if not required <= coverage: raise ValueError('每个本课学习知识点至少需要一道正式习题检验')
+    quality_record = None
+    if decision['schema_version'] in ('5.0', '6.0', '7.0'):
+        gate, quality_record = teaching_quality.evaluate(decision, lesson, model, config, quality_review)
+        if gate: return gate
+    if decision['schema_version'] in ('5.0', '6.0', '7.0'):
+        quality_flow = WorkflowCheckpoint({
+            'prepared': ('validating',), 'validating': ('quality_review_required', 'completed'),
+            'quality_review_required': ('validating',), 'completed': ()},
+            Path(model['run_dir']) / 'question-quality', resume=True)
+        if quality_flow.state in ('prepared', 'quality_review_required'):
+            quality_flow.move('validating')
+        prior = question_quality.history(model, read_json(Path(model['navigation_json'])))
+        problems = []
+        for q in qs:
+            findings = question_quality.compare(q, prior)
+            judgments = {r['history_id']: r for r in q.get('reuse_review', [])}
+            for finding in findings:
+                proof = judgments.get(finding['history_id'])
+                if not proof or not proof['reason'].strip() or (finding['kind'] == 'duplicate' and proof['purpose'] != 'retest'):
+                    problems.append(finding)
+            prior.append({**q, 'history_id': lesson['lesson_id'] + '/' + q['question_id']})
+        if problems:
+            quality_flow.move('quality_review_required', findings=problems)
+            store(Path(model['run_dir'])/'question-quality.json', {'status': 'quality_review_required', 'findings': problems})
+            raise ValueError('习题重复或相似，请修改或填写复测／不同任务判断')
+        quality_flow.move('completed', findings=[])
+        store(Path(model['run_dir'])/'question-quality.json', {'status': 'completed', 'findings': []})
+        count = sum(q['type'] == 'multiple_choice' for l in model['lessons'] for q in l.get('content', {}).get('questions', []))
+        for q in qs:
+            if q['type'] == 'multiple_choice':
+                question_quality.arrange_options(q, count); count += 1
+        lesson['feedback_protocol'] = 1
+        model['routing_protocol'] = 1
+        if model.get('next_adaptation'):
+            adaptation = model['next_adaptation']
+            model.setdefault('adaptation_deliveries', []).append({'feedback_id': adaptation['feedback_id'], 'lesson_id': lesson['lesson_id'], 'changes': decision['adaptation_applied']['changes']})
     if lesson.get('content'):
         lesson.setdefault('publication_history', []).append({
             'at': iso_timestamp(), 'content': copy.deepcopy(lesson['content']),
             'markdown': lesson['markdown_template'], 'answers': copy.deepcopy(lesson.get('answers', {})),
-            'review': copy.deepcopy(lesson.get('review'))})
+            'review': copy.deepcopy(lesson.get('review')),
+            **({'teaching_quality': copy.deepcopy(lesson['teaching_quality'])} if lesson.get('teaching_quality') else {}),
+            **({'teaching_context': copy.deepcopy(lesson['teaching_context'])} if lesson.get('teaching_context') else {})})
     lesson.pop('checked_answer_hash', None)
     lesson['content'] = decision; lesson['status'] = 'awaiting_answer'
-    lesson['podcast'] = {'requested': config['podcast']['enabled'], 'status': 'not_implemented' if config['podcast']['enabled'] else 'disabled'}
+    if context_record is not None: lesson['teaching_context'] = context_record
+    else: lesson.pop('teaching_context', None)
+    if quality_record is not None: lesson['teaching_quality'] = quality_record
+    else: lesson.pop('teaching_quality', None)
+    lesson.pop('review', None); lesson.pop('feedback', None); lesson.pop('answers', None)
+    lesson.pop('review_delivery', None)
+    lesson.pop('review_feedback_protocol', None)
+    lesson['podcast'] = {'requested': config['podcast']['enabled'], 'status': 'pending' if config['podcast']['enabled'] else 'disabled'}
+    lesson['document_version'] = 2
+    lesson.pop('learner_feedback', None)
+    lesson['_publishing'] = True
     md = lesson_md(model, lesson, decision)
     lesson['markdown_template'] = md
+    lesson['base_markdown'] = md
     for uid in required:
         if model['unit_progress'][uid]['status'] != 'completed': model['unit_progress'][uid]['status'] = 'awaiting_answer'
-    transition(model, 'awaiting_answer', 'publish_lesson')
+    transition(model, 'podcast_required' if config['podcast']['enabled'] else 'awaiting_answer', 'publish_lesson')
     save(project, model, config)
-    write_text_atomic(project / '课程' / lesson['filename'], md)
-    return {'status': model['state'], 'lesson': str(project/'课程'/lesson['filename']), 'podcast_message': '播客功能待实现' if config['podcast']['enabled'] else ''}
+    if config['podcast']['enabled']:
+        from .learning_lesson_podcast import advance
+        return advance(project, model, config, mock=podcast_mock)
+    return {'status': model['state'], 'lesson': str(project/'课程'/lesson['filename'])}
 
 def normalize_answers(text):
     return re.sub(r'<!-- answer:([^:]+):start -->.*?<!-- answer:\1:end -->', lambda m: '<!-- answer:'+m[1]+':start --><!-- answer:'+m[1]+':end -->', text, flags=re.S)
@@ -631,6 +921,10 @@ def normalize_answers(text):
 def collect_answers(project, model, answers=None):
     if model['state'] not in ('awaiting_answer', 'review_decision_required'): raise ValueError('当前不接受作答')
     lesson = next(l for l in model['lessons'] if l['lesson_id'] == model['current_lesson_id'])
+    learner_feedback = None
+    if answers is not None and isinstance(answers, dict) and 'answers' in answers:
+        if set(answers) - {'answers', 'learner_feedback'}: raise ValueError('作答提交字段无效')
+        learner_feedback = answers.get('learner_feedback'); answers = answers['answers']
     if answers is not None:
         lesson.pop('checked_answer_hash', None)
     if answers is None:
@@ -638,22 +932,37 @@ def collect_answers(project, model, answers=None):
         if normalize_answers(text) != normalize_answers(lesson['markdown_template']): raise ValueError('教学正文已变化，仅允许编辑作答区域')
         lesson['checked_answer_hash'] = json_digest(text)
         answers = {}
+        if lesson.get('feedback_protocol'):
+            learner_feedback = {}
+            for qid, field in [('LEARNER_DIFFICULTY', 'difficulty'), ('LEARNER_COMMENT', 'comment')]:
+                match = re.search(r'<!-- answer:' + qid + r':start -->(.*?)<!-- answer:' + qid + r':end -->', text, re.S)
+                value = re.sub(r'^>\s?', '', match[1] if match else '', flags=re.M)
+                learner_feedback[field] = re.sub(r'\A\s*\*\*(?:我的选择：|我的反馈：)\*\*\s*', '', value).strip()
         for q in lesson['content']['questions']:
             match = re.search(r'<!-- answer:'+re.escape(q['question_id'])+r':start -->(.*?)<!-- answer:'+re.escape(q['question_id'])+r':end -->', text, re.S)
             block = match[1] if match else ''
             if '⟦' in block: raise ValueError('仍有未填写的作答区域')
-            value = re.sub(r'>\s*\*\*.*?\*\*', '', block).replace('>', '').strip()
+            value = re.sub(r'^>\s?', '', block, flags=re.M)
+            value = re.sub(r'\A\s*\*\*✍️ 在这里作答\*\*[^\S\n]*(?:\n|$)', '', value)
+            value = re.sub(r'\A\s*\*\*(?:我的选择：|我的回答：)\*\*[^\S\n]*(?:\n|$)', '', value).strip()
             answers[q['question_id']] = value
     if not isinstance(answers, dict) or set(answers) != {q['question_id'] for q in lesson['content']['questions']} or any(not isinstance(x, str) or not x.strip() for x in answers.values()):
         raise ValueError('请逐题提交完整答案')
+    if any(re.search(r'<!--\s*(?:answer|feedback):', value) for value in answers.values()):
+        raise ValueError('回答不能包含课程作答区或反馈区的保留标记')
     lesson['answers'] = answers
+    lesson['review_feedback_protocol'] = 1
+    if lesson.get('feedback_protocol'): lesson['learner_feedback'] = content_tools.normalize_feedback(learner_feedback)
+    lesson['_sync_answers'] = True
     review = {'lesson_id': lesson['lesson_id'], 'scores': [], 'strengths': '', 'weaknesses': ''}
     for q in lesson['content']['questions']:
         if q['type'] == 'multiple_choice':
             score = multiple_choice_score(q, answers[q['question_id']])
         else: score = None
         review['scores'].append({'question_id': q['question_id'], 'unit_scores': {x: score for x in q['unit_ids']},
-                                  'feedback': '', 'misconceptions': []})
+                                  'feedback': '', 'misconceptions': [],
+                                  'reference_explanation': '；'.join(dict.fromkeys(p for values in q['expected_points'].values() for p in values)),
+                                  'difference_notes': ''})
     store(Path(model['run_dir'])/'review.template.json', review)
     transition(model, 'review_decision_required', 'answers_received')
     return review
@@ -664,6 +973,13 @@ def multiple_choice_score(question, answer):
     return 1.0 if selected == chr(65+question['correct_index']) else 0.0
 
 def review(project, model, config, data):
+    candidate = copy.deepcopy(model)
+    result = _review(project, candidate, config, data)
+    _adopt_model(model, candidate)
+    return result
+
+
+def _review(project, model, config, data):
     if model['state'] != 'review_decision_required': raise ValueError('请先提交本课答案')
     validate_json_schema(data, ROOT/'utils/references/interactive-tutor-review-v3.schema.json')
     lesson = next(l for l in model['lessons'] if l['lesson_id'] == model['current_lesson_id'])
@@ -675,9 +991,13 @@ def review(project, model, config, data):
     if data['lesson_id'] != lesson['lesson_id'] or {s['question_id'] for s in data['scores']} != set(questions) or len(data['scores']) != len(questions):
         raise ValueError('批改必须逐题覆盖当前课程')
     if not data['strengths'].strip() or not data['weaknesses'].strip(): raise ValueError('请明确指出掌握优点与不足；没有不足也需说明')
-    values = {x: [] for x in lesson['teaches_unit_ids']}; lines = []
+    if any(not item['feedback'].strip() for item in data['scores']):
+        raise ValueError('每道习题都需要填写作答反馈')
+    values = {x: [] for x in lesson['teaches_unit_ids']}
     for item in data['scores']:
         q = questions[item['question_id']]
+        if lesson.get('review_feedback_protocol') and not {'reference_explanation', 'difference_notes'} <= set(item):
+            raise ValueError('新版批改必须保留简略解释和差异说明字段')
         if set(item['unit_scores']) != set(q['unit_ids']): raise ValueError('评分点覆盖错误')
         for uid, score in item['unit_scores'].items():
             if type(score) not in (int,float) or not 0 <= score <= 1: raise ValueError('评分必须在 0～1')
@@ -702,18 +1022,52 @@ def review(project, model, config, data):
                 prompt = q['prompt'] + ('\n\n' + '\n'.join(f'{chr(65+i)}. {o}' for i, o in enumerate(q['options'])) if q['type'] == 'multiple_choice' else '')
                 example = {'lesson_number': lesson['number'], 'prompt': prompt, 'answer': str(lesson['answers'][q['question_id']]), 'reference_answer': q['reference_answer']}
                 if example not in entry['examples']: entry['examples'].append(example)
-        lines.append(f"- {q['question_id']}：{sum(item['unit_scores'].values())/len(item['unit_scores']):.0%}；{item['feedback']}")
+        # New templates ask for a short semantic comparison whenever wording differs.
+        # Equivalent wording is allowed; this check never determines the grade.
+        if (q['type'] == 'open_ended' and 'difference_notes' in item
+                and lesson['answers'][q['question_id']].strip() != q['reference_answer'].strip()
+                and not item['difference_notes'].strip()):
+            raise ValueError('问答作答与参考答案表述不同时，请补充差异或等价表达说明')
+        if 'reference_explanation' in item and not item['reference_explanation'].strip():
+            raise ValueError('请补充简略参考答案解释')
     for uid, scores in values.items():
         p = model['unit_progress'][uid]
         if scores:
             p['mastery'] = sum(scores)/len(scores)
             if not p['skip']: p['status'] = 'completed'
     lesson['review'] = data; lesson['feedback'] = {'strengths': data['strengths'], 'weaknesses': data['weaknesses']}; lesson['status'] = 'completed'
-    transition(model, 'awaiting_questions', 'review_and_documents_completed')
+    modern = lesson.get('feedback_protocol')
+    if modern:
+        transition(model, 'processing_learning_feedback', 'review_and_documents_completed')
+        difficulty = lesson['learner_feedback']['difficulty']
+        policy = {'A': '减少重复基础说明，增加应用与迁移', 'B': '维持当前深度，结合实际评分调整', 'C': '增加示范与支架，必要时拆分未发布课程'}[difficulty]
+        packet = {'feedback_id': json_digest([lesson['lesson_id'], lesson['learner_feedback'], data]),
+                  'lesson_id': lesson['lesson_id'], 'learner_feedback': lesson['learner_feedback'],
+                  'suggestion': policy, 'scores': {u: model['unit_progress'][u]['mastery'] for u in values},
+                  'decision': {'feedback_kind': 'none' if not lesson['learner_feedback']['comment'] else '', 'rationale': policy if not lesson['learner_feedback']['comment'] else '', 'operations': []}}
+        model['pending_adaptation'] = packet
+        store(Path(model['run_dir'])/'adaptation.template.json', packet)
+        transition(model, 'adaptation_decision_required', 'feedback_processed')
+    else:
+        transition(model, 'awaiting_questions', 'review_and_documents_completed')
+    review_delivery.prepare(lesson, model['run_dir'])
     save(project, model, config)
-    feedback = '# 作答反馈\n\n' + '\n'.join(lines) + '\n\n## 掌握优点\n\n' + data['strengths'] + '\n\n## 需要加强\n\n' + data['weaknesses'] + '\n\n本课文档已更新。你还有疑问吗？\n'
-    write_text_atomic(Path(model['run_dir'])/'feedback.md', feedback)
-    return {'status': model['state'], 'feedback_markdown': feedback}
+    feedback = review_delivery.render(lesson)
+    if modern and not lesson['learner_feedback']['comment']:
+        apply_adaptation(project, model, config, model['pending_adaptation'])
+    return {**review_delivery.pending(model), 'status': model['state'], 'delivery_status': 'awaiting_display',
+            'feedback_markdown': feedback}
+
+
+def deliver_feedback(project, model, config, lesson_id, review_sha256, feedback_sha256):
+    review_delivery.verify_logs(model)
+    candidate = copy.deepcopy(model)
+    result = review_delivery.acknowledge(candidate, lesson_id, review_sha256, feedback_sha256)
+    # Repeated acknowledgement is a read-only operation, including its timestamp.
+    if candidate != model:
+        save(project, candidate, config)
+        _adopt_model(model, candidate)
+    return result
 
 def questions_event(model, no_questions=False, question=None, answer=None, evidence_refs=None):
     if no_questions:
@@ -723,11 +1077,52 @@ def questions_event(model, no_questions=False, question=None, answer=None, evide
     else:
         if not question or not answer: raise ValueError('请提交用户问题和回答')
         model['question_discussions'].append({'lesson_id': model['current_lesson_id'], 'question': question, 'answer': answer, 'evidence_refs': evidence_refs or [], 'at': iso_timestamp()})
-        if model['state'] == 'awaiting_questions':
+        if model['state'] == 'awaiting_feedback_questions':
+            transition(model, 'adaptation_decision_required', 'feedback_question_answered')
+            model['pending_adaptation']['question_resolved'] = True
+        elif model['state'] == 'awaiting_questions':
             transition(model, 'awaiting_questions', 'question_answered')
         else:
             model['events'].append({'at': iso_timestamp(), 'from': model['state'], 'to': model['state'], 'event': 'in_course_question_answered'})
-    return {'status': model['state'], 'message': '可以准备下一课' if no_questions else '已记录答疑。你还有疑问吗？'}
+    current = next((l for l in model['lessons'] if l['lesson_id'] == model['current_lesson_id']), None)
+    modern = bool(current and current.get('feedback_protocol'))
+    return {'status': model['state'], 'message': '可以准备下一课' if no_questions else '已记录答疑。' if modern or model['state'] == 'adaptation_decision_required' else '已记录答疑。你还有疑问吗？'}
+
+
+def apply_adaptation(project, model, config, value):
+    if model['state'] != 'adaptation_decision_required': raise ValueError('当前不接受学习反馈调整')
+    packet = model['pending_adaptation']
+    if value.get('feedback_id') != packet['feedback_id']: raise ValueError('反馈版本已变化')
+    decision = value.get('decision', {})
+    if set(decision) != {'feedback_kind', 'rationale', 'operations'} or decision['feedback_kind'] not in ('none', 'feedback', 'question') or not isinstance(decision['rationale'], str) or not decision['rationale'].strip():
+        raise ValueError('请填写反馈分类、简短调整理由与计划补丁')
+    if packet['learner_feedback']['comment'] and decision['feedback_kind'] == 'none':
+        raise ValueError('非空学习反馈必须判断为建议或疑问')
+    if decision['feedback_kind'] == 'question' and not packet.get('question_resolved'):
+        transition(model, 'awaiting_feedback_questions', 'learner_question_requires_answer')
+        save(project, model, config)
+        return {'status': model['state'], 'question': packet['learner_feedback']['comment']}
+    patch = {'base_revision': model['revision'], 'operations': decision['operations']}
+    if not isinstance(decision['operations'], list): raise ValueError('调整 operations 应为数组')
+    if decision['operations']: validate_json_schema(patch, ROOT/'utils/references/interactive-tutor-plan-patch-v1.schema.json')
+    plan_patch(model, decision['operations'])
+    model['next_adaptation'] = {k: copy.deepcopy(v) for k, v in packet.items() if k != 'decision'}
+    model['next_adaptation']['decision'] = decision
+    model.setdefault('adaptation_history', []).append(copy.deepcopy(model['next_adaptation']))
+    model.pop('pending_adaptation')
+    transition(model, 'ready', 'learning_feedback_applied')
+    save(project, model, config)
+    return {'status': model['state'], 'feedback_id': packet['feedback_id']}
+
+
+def confirm_plan(project, model, config, revision):
+    if model['state'] != 'lesson_plan_required': raise ValueError('当前没有待确认课程分组')
+    if revision != model['revision']: raise ValueError('课程规划版本冲突')
+    rebuild(model, config)
+    model['planning_confirmed'] = True
+    transition(model, 'ready', 'course_grouping_validated')
+    save(project, model, config)
+    return {'status': model['state'], 'revision': model['revision']}
 
 def plan_patch(model, patches):
     for item in patches:
@@ -776,6 +1171,7 @@ def note_confirm(model, digest, confirmed_by):
         model['notes'].append({**note, 'confirmation_state': 'confirmed', 'confirmed_by': confirmed_by, 'confirmed_at': iso_timestamp()})
 
 def verify(project, model, config):
+    review_delivery.verify_logs(model)
     verify_backup(Path(model['workspace_root']), project, read_json(Path(model['navigation_json'])))
     rebuild(model, config)
     meta = read_json(project/'项目.json')
@@ -786,7 +1182,29 @@ def verify(project, model, config):
             raise ValueError('JSON/Markdown 不一致：' + name)
     for lesson in model['lessons']:
         if not lesson.get('content'): continue
+        for previous in lesson.get('publication_history', []):
+            if previous.get('teaching_quality'):
+                teaching_quality.verify_published(previous, previous['markdown'])
+            if previous.get('content', {}).get('schema_version') == '7.0':
+                from .learning_teaching_context import verify_record
+                verify_record(previous['content'], previous['teaching_context'], Path(model.get('workspace_root', ROOT)), run_dir=model['run_dir'])
+        if model['state'] == 'podcast_required' and lesson['lesson_id'] == model['current_lesson_id']:
+            pending_path = project / '课程' / lesson['filename']
+            if pending_path.exists():
+                history = lesson.get('publication_history', [])
+                if not history or normalize_answers(pending_path.read_text(encoding='utf-8-sig')) != normalize_answers(history[-1]['markdown']):
+                    raise ValueError('音频未完成却已发布新课程')
+            continue
+        if lesson.get('podcast', {}).get('status') == 'completed':
+            from . import dialogue_pipeline as dp
+            dp.verify(dp.Flow(Path(model['workspace_root']), 'podcast', lesson['podcast']['run_id']).load())
+            if sha256_file(project / lesson['podcast']['audio_path']) != lesson['podcast']['audio_sha256']:
+                raise ValueError('课程播客损坏')
         path = project/'课程'/lesson['filename']
+        teaching_quality.verify_published(lesson, lesson['markdown_template'])
+        if lesson['content'].get('schema_version') == '7.0':
+            from .learning_teaching_context import verify_record
+            verify_record(lesson['content'], lesson['teaching_context'], Path(model.get('workspace_root', ROOT)), run_dir=model['run_dir'])
         if read_json(project/'artifacts/lessons'/Path(lesson['filename']).with_suffix('.json')) != lesson:
             raise ValueError('课程 JSON 不一致')
         if normalize_answers(path.read_text(encoding='utf-8-sig')) != normalize_answers(lesson['markdown_template']): raise ValueError('课程正文不一致')

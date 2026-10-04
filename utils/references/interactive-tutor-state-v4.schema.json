@@ -38,7 +38,7 @@
       "const": "4.0"
     },
     "workflow": {
-      "const": "beta-interactive-tutor"
+      "const": "interactive-tutor"
     },
     "run_id": {
       "type": "string",

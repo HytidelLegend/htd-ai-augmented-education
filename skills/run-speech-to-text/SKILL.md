@@ -67,3 +67,7 @@ runtime/.venv/Scripts/python.exe skills/run-speech-to-text/scripts/cli.py verify
 正式目录保存 `generated/transcript.txt`、`generated/full.timestamps.json`、`approved/transcript.txt`、`approved/full.timestamps.json`、`approved/transcript-approval.json`、`manifest.json` 和 `handoff.json`。纠错模板与补丁、原始响应、媒体处理日志、热词和输入副本保存在日志目录。
 
 时间戳沿用 schema `1.1`，毫秒、`[start_ms, end_ms)`，非空 `items` 和 `sentences`。脚本复核正文与时间戳对齐、批准回执和 manifest 中所有文件哈希；确认完成前不能向下游发布已批准状态。
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

@@ -31,10 +31,11 @@ DEFAULT_PROJECT_DIR = next(p for p in Path(__file__).resolve().parents if (p / '
 if str(DEFAULT_PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(DEFAULT_PROJECT_DIR))
 
+from utils.scripts.artifact_location import staging_dir
 from utils.scripts.file_transaction import file_sha256, project_lock
 from utils.scripts.audio_clip import AudioClipError, clip_audio
 from utils.scripts.audio_noise_bed import AudioNoiseBedError, add_white_noise_bed
-from utils.scripts.structured_io import read_json, structured_error_receipt
+from utils.scripts.structured_io import read_json, structured_error_receipt, write_json_transaction
 from utils.scripts.run_state import write_json
 from utils.scripts.speech_pause_markers import (
     MARKER_VERSION,
@@ -45,7 +46,8 @@ from utils.scripts.speech_pause_markers import (
 from utils.scripts.text_spans import apply_text_edits, find_literal_spans, spans_overlap
 from utils.scripts.timestamp import iso_timestamp
 from utils.scripts.tts_backend import BACKENDS, ADAPTER_VERSION, check_backend, dotenv_credential, validate_backend_parameters, validate_voice_mapping, validate_backend_configuration
-from utils.scripts.speech_cli import transcript_next_action
+from utils.scripts.speech_cli import transcript_next_action, CommandStateError
+from utils.scripts import speech_context_rewrites as context_rewrites
 from utils.scripts.ffmpeg_plan import find_ffmpeg
 from utils.scripts.media_probe import find_ffprobe
 from utils.scripts.speech_handoff import build_handoff, verify_handoff, producer_paths
@@ -88,6 +90,10 @@ ACTIVE_STAGES = (
     "awaiting_transcript",
     "transcript_validated",
     "input_staged",
+    "scanning_context",
+    "awaiting_context_decisions",
+    "applying_context_rewrites",
+    "validating_context_rewrites",
     "batches_planned",
     "preview_synthesizing",
     "preview_rendering",
@@ -119,7 +125,11 @@ def _tts_transitions() -> dict[str, set[str]]:
         "checking_backend_environment": "awaiting_transcript",
         "awaiting_transcript": "transcript_validated",
         "transcript_validated": "input_staged",
-        "input_staged": "batches_planned",
+        "input_staged": "scanning_context",
+        "scanning_context": "awaiting_context_decisions",
+        "awaiting_context_decisions": "applying_context_rewrites",
+        "applying_context_rewrites": "validating_context_rewrites",
+        "validating_context_rewrites": "batches_planned",
         "batches_planned": "preview_synthesizing",
         "preview_synthesizing": "preview_rendering",
         "preview_rendering": "preview_ready",
@@ -139,6 +149,8 @@ def _tts_transitions() -> dict[str, set[str]]:
         if stage in next_stage:
             targets.add(next_stage[stage])
         transitions[stage] = targets
+    transitions["scanning_context"].add("applying_context_rewrites")
+    transitions["input_staged"].add("batches_planned")  # historical checkpoints
     transitions["input_validated"].add("awaiting_transcript")  # legacy checkpoints
     transitions["batches_planned"].add("synthesizing")
     transitions["preview_synthesizing"].add("batches_ready")
@@ -1011,7 +1023,7 @@ def merge_with_ffmpeg(
     executable = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
     if not executable:
         raise TTSConfigurationError("未找到 ffmpeg，无法拼接非 WAV 音频")
-    with tempfile.TemporaryDirectory(prefix="tts_merge_") as temporary:
+    with tempfile.TemporaryDirectory(prefix="tts_merge_", dir=output.parent) as temporary:
         temp_dir = Path(temporary)
         inputs: list[Path] = []
         if leading_pause_ms:
@@ -1105,6 +1117,7 @@ def state_store(root: Path, run_id: str) -> WorkflowStateStore:
         definition=TTS_STATE_MACHINE,
         schema_path=DEFAULT_PROJECT_DIR / "utils" / "references" / "workflow-state-v1.schema.json",
         events_dir=root / "logs" / WORKFLOW / "runs" / run_id / "events",
+        event_filename=f'{run_id}.jsonl',
     )
 
 
@@ -1330,7 +1343,7 @@ def initialize_revision(
         run_id = workspace.run_id
         output_dir = workspace.speech_dir
         store = state_store(root, run_id)
-        (store.run_dir / "staging").mkdir(parents=True)
+        (staging_dir(store.root, WORKFLOW, store.run_id)).mkdir(parents=True)
         revision = {
             "base_run_id": args.base_run_id,
             "base_output_dir": str(base_state["output_dir"]),
@@ -1474,13 +1487,14 @@ def _prepare_transcript_workspace(
     return _link_transcript_workspace(root, Path(receipt["workspace_dir"]), output_root)
 
 
-def _link_transcript_workspace(root: Path, producer_dir: Path, output_root: Path | None = None) -> TtsWorkspace:
+def _link_transcript_workspace(root: Path, producer_dir: Path, output_root: Path | None = None,
+                               requested_run_id: str | None = None) -> TtsWorkspace:
     """Allocate an independent consumer run; upstream remains read-only."""
     producer_skill = producer_dir.parents[1].name
     if producer_skill == "run-speech-to-text":
         handoff = build_handoff(root, producer_skill, producer_dir.name)
         verify_handoff(root, handoff)
-        workspace = create_workspace(root, output_root, workflow=WORKFLOW)
+        workspace = create_workspace(root, output_root, workflow=WORKFLOW, run_id=requested_run_id)
         copied = workspace.inputs_dir / "input.txt"
         shutil.copy2(root / handoff["approved_transcript_path"], copied)
         metadata = input_metadata(copied)
@@ -1493,7 +1507,7 @@ def _link_transcript_workspace(root: Path, producer_dir: Path, output_root: Path
     producer = open_workspace(producer_dir)
     if producer.layout_profile != "education":
         raise TTSWorkflowError("本项目使用 outputs/<skill>/runs/<run-id>；请重新准备逐字稿")
-    workspace = create_workspace(root, output_root, workflow=WORKFLOW)
+    workspace = create_workspace(root, output_root, workflow=WORKFLOW, run_id=requested_run_id)
     for path in producer.inputs_dir.iterdir():
         if path.is_file():
             shutil.copy2(path, workspace.inputs_dir / path.name)
@@ -1509,14 +1523,19 @@ def _link_transcript_workspace(root: Path, producer_dir: Path, output_root: Path
 
 def initialize_run(args: argparse.Namespace, config: dict[str, Any]) -> tuple[dict[str, Any], WorkflowStateStore]:
     config = copy.deepcopy(config)
+    if getattr(args, 'skip_preview', False):
+        config['preview']['enabled'] = False
     if getattr(args, "backend", None) is not None:
         config["backend"] = args.backend
     validate_backend_configuration(config)
     root = Path(args.root).resolve()
     candidate_text = _candidate_text(args)
+    if getattr(args, 'requested_run_id', None):
+        state_store(root, args.requested_run_id)  # Validate before creating any workspace.
     if getattr(args, "transcript_run_id", None):
         skill = getattr(args, "producer_skill", "convert-copy-to-transcript")
-        args.workspace_dir = str(root / "outputs" / skill / "runs" / args.transcript_run_id)
+        from utils.scripts.artifact_location import output_dir as run_output_dir
+        args.workspace_dir = str(run_output_dir(root, skill, args.transcript_run_id))
     if candidate_text is None and not args.output_root and not args.workspace_dir:
         raise TTSWorkflowError("输入文案和输出路径至少必须提供一个")
     audio_config = _audio_config(args, config)
@@ -1525,7 +1544,8 @@ def initialize_run(args: argparse.Namespace, config: dict[str, Any]) -> tuple[di
     if args.workspace_dir:
         if requested_output is not None:
             raise TTSWorkflowError("--workspace-dir 与 --output-root 不能同时使用")
-        workspace = _link_transcript_workspace(root, Path(args.workspace_dir))
+        workspace = _link_transcript_workspace(root, Path(args.workspace_dir),
+                                               requested_run_id=getattr(args, 'requested_run_id', None))
     elif requested_output and (requested_output / "pipeline-manifest.json").is_file():
         workspace = _link_transcript_workspace(root, requested_output)
     else:
@@ -1540,7 +1560,7 @@ def initialize_run(args: argparse.Namespace, config: dict[str, Any]) -> tuple[di
         store = state_store(root, run_id)
         if store.path.exists():
             raise TTSWorkflowError(f"TTS 运行已存在，请使用 resume：{run_id}")
-        (store.run_dir / "staging").mkdir(parents=True)
+        (staging_dir(store.root, WORKFLOW, store.run_id)).mkdir(parents=True)
         request = {
             "schema_version": "1.0",
             "speaker": speaker_name,
@@ -1836,8 +1856,13 @@ def stage_input(state: dict[str, Any], store: WorkflowStateStore) -> dict[str, A
             "synthesis_map_path": str(synthesis_map_path),
             "synthesis_map_file_sha256": file_sha256(synthesis_map_path),
             "synthesis_policy": synthesis_policy,
+            "context_rewrite_version": context_rewrites.VERSION,
         }
     )
+    if request.get("mode") == "pause_retime":
+        base_state, _, _ = _load_completed_run(Path(state["root"]), request["base_run_id"])
+        if not (base_state.get("input") or {}).get("context_rewrite_version"):
+            input_info.pop("context_rewrite_version", None)  # historical pause-only semantics
     return store.transition(
         state,
         "input_staged",
@@ -1845,6 +1870,134 @@ def stage_input(state: dict[str, Any], store: WorkflowStateStore) -> dict[str, A
         completed_step="input_staged",
         updates={"input": input_info},
     )
+
+
+def prepare_context(state: dict[str, Any], store: WorkflowStateStore) -> dict[str, Any]:
+    if state["status"] == "input_staged":
+        state = store.transition(state, "scanning_context", stage="scanning_context")
+    text = validate_input_checkpoint(state)
+    packet = context_rewrites.scan(text)
+    request = read_json(Path(state["request_path"]))
+    if request.get("mode") == "pause_retime":
+        base_state, _, _ = _load_completed_run(Path(state["root"]), request["base_run_id"])
+        base_packet = (base_state.get("input") or {}).get("context_rewrites")
+        if base_packet is None:
+            raise TTSVerificationError("停顿重定时缺少基准语境快照")
+        try:
+            context_rewrites.validate_packet(text, base_packet)
+        except ValueError as exc:
+            raise TTSVerificationError("停顿重定时的基准语境快照无效") from exc
+        packet = copy.deepcopy(base_packet)
+    path = store.run_dir / "generated" / "context-candidates.json"
+    template_path = store.run_dir / "generated" / "context-decisions.template.json"
+    write_json(path, packet)
+    write_json(template_path, context_rewrites.template(packet))
+    info = dict(state["input"])
+    info.update(context_packet_path=str(path), context_packet_sha256=file_sha256(path))
+    unresolved = any(c["action"] == "uncertain" for c in packet["candidates"])
+    target = "awaiting_context_decisions" if unresolved else "applying_context_rewrites"
+    return store.transition(state, target, stage=target, updates={"input": info,
+        "pending_decisions": [{"next_action": "apply-context-decisions", "packet_path": str(path),
+                               "source_path": info["synthesis_path"],
+                               "template_path": str(template_path)}] if unresolved else []})
+
+
+def submit_context_decisions(state: dict[str, Any], store: WorkflowStateStore, response: dict) -> dict[str, Any]:
+    if state["status"] != "awaiting_context_decisions":
+        raise CommandStateError("当前没有等待中的地字语境决策")
+    text = validate_input_checkpoint(state)
+    if state.get("upstream_handoff"):
+        verify_handoff(Path(state["root"]), state["upstream_handoff"])
+    info = dict(state["input"])
+    path = Path(info["context_packet_path"])
+    if not path.is_file() or file_sha256(path) != info["context_packet_sha256"]:
+        raise TTSVerificationError("语境候选指纹不一致")
+    original = read_json(path)
+    context_rewrites.validate_packet(text, original, require_resolved=False)
+    try:
+        packet = context_rewrites.apply_decisions(original, response)
+    except ValueError as exc:
+        raise CommandStateError(str(exc)) from exc
+    # Immutable snapshots keep the previous checkpoint valid if state.save fails.
+    resolved_path = store.run_dir / "generated" / ("context-candidates-" + json_sha256(packet) + ".json")
+    response_path = store.run_dir / "generated" / ("context-decisions-" + json_sha256(response) + ".json")
+    updates = {resolved_path: packet, response_path: response}
+    for target, content in updates.items():
+        if target.exists() and read_json(target) != content:
+            raise TTSVerificationError("语境日志快照冲突")
+    # Object hashes ignore key order; never reserialize an existing snapshot.
+    write_json_transaction({target: content for target, content in updates.items() if not target.exists()})
+    info.update(context_packet_path=str(resolved_path), context_packet_sha256=file_sha256(resolved_path),
+                context_decisions_path=str(response_path), context_decisions_sha256=file_sha256(response_path))
+    if any(c["action"] == "uncertain" for c in packet["candidates"]):
+        return store.checkpoint(state, event="context_decisions_unresolved", updates={"input": info})
+    return store.transition(state, "applying_context_rewrites", stage="applying_context_rewrites",
+                            updates={"input": info, "pending_decisions": []})
+
+
+def apply_context(state: dict[str, Any], store: WorkflowStateStore) -> dict[str, Any]:
+    text = validate_input_checkpoint(state)
+    info = dict(state["input"])
+    path = Path(info["context_packet_path"])
+    if not path.is_file() or file_sha256(path) != info["context_packet_sha256"]:
+        raise TTSVerificationError("语境候选指纹不一致")
+    packet = read_json(path)
+    try:
+        request_text = context_rewrites.rewrite(text, packet)
+    except ValueError as exc:
+        raise TTSVerificationError("语境改写快照无效") from exc
+    request_path = store.run_dir / "generated" / "request-text.txt"
+    request_path.write_text(request_text, encoding="utf-8", newline="\n")
+    info.update(context_rewrites=packet, request_text_path=str(request_path),
+                request_text_sha256=file_sha256(request_path))
+    return store.transition(state, "validating_context_rewrites", stage="validating_context_rewrites",
+                            updates={"input": info})
+
+
+def validate_context_input(info: dict, text: str) -> None:
+    packet = info.get("context_rewrites")
+    if packet is None:
+        return
+    path = Path(str(info.get("context_packet_path", "")))
+    request_path = Path(str(info.get("request_text_path", "")))
+    if info.get("context_rewrite_version") != context_rewrites.VERSION:
+        raise TTSVerificationError("语境改写规则版本不一致")
+    if not path.is_file() or not request_path.is_file():
+        raise TTSVerificationError("语境候选或合成请求文本缺失")
+    if file_sha256(path) != info.get("context_packet_sha256") or read_json(path) != packet:
+        raise TTSVerificationError("语境候选快照指纹不一致")
+    if file_sha256(request_path) != info.get("request_text_sha256"):
+        raise TTSVerificationError("合成请求文本指纹不一致")
+    try:
+        expected = context_rewrites.rewrite(text, packet)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise TTSVerificationError("语境改写快照无效") from exc
+    if info.get("context_decisions_path"):
+        decisions_path = Path(info["context_decisions_path"])
+        if not decisions_path.is_file() or file_sha256(decisions_path) != info.get("context_decisions_sha256"):
+            raise TTSVerificationError("语境决策归档指纹不一致")
+        try:
+            decisions_packet = context_rewrites.apply_decisions(context_rewrites.scan(text), read_json(decisions_path))
+        except ValueError as exc:
+            raise TTSVerificationError("语境决策归档无效") from exc
+        if decisions_packet != packet:
+            raise TTSVerificationError("语境决策归档与快照不一致")
+    if validate_utf8_input(request_path) != expected:
+        raise TTSVerificationError("合成请求文本与语境改写不一致")
+
+
+def request_batch_text(state: dict, text: str, synthesis_start: int = 0) -> str:
+    packet = (state.get("input") or {}).get("context_rewrites")
+    if packet is None:
+        return text
+    chars = list(text)
+    for candidate in packet["candidates"]:
+        offset = candidate["offset"] - synthesis_start
+        if candidate["action"] == "replace" and 0 <= offset < len(chars):
+            if chars[offset] != "地":
+                raise TTSVerificationError("batch 与语境候选位置不一致")
+            chars[offset] = "的"
+    return "".join(chars)
 
 
 def validate_input_checkpoint(state: dict[str, Any]) -> str:
@@ -1878,6 +2031,7 @@ def validate_input_checkpoint(state: dict[str, Any]) -> str:
         raise TTSVerificationError("合成映射无效：" + "；".join(mapping_errors))
     if json_sha256(state["config_snapshot"]) != state.get("config_sha256"):
         raise TTSTerminalError("状态中的配置快照指纹不一致")
+    validate_context_input(info, synthesis_text)
     return synthesis_text
 
 
@@ -2026,8 +2180,10 @@ def check_backend_checkpoint(state: dict[str, Any]) -> dict:
     return metadata
 
 
-def synthesis_fingerprint(state: dict[str, Any], text: str, *, adapter_version: str | None = None) -> str:
-    return json_sha256({"text": text, "backend": state.get("backend", "volcengine"),
+def synthesis_fingerprint(state: dict[str, Any], text: str, *, adapter_version: str | None = None, synthesis_start: int = 0) -> str:
+    request = request_batch_text(state, text, synthesis_start)
+    extra = {"request_text": request, "context_rewrite_version": context_rewrites.VERSION} if request != text else {}
+    return json_sha256({**extra,"text": text, "backend": state.get("backend", "volcengine"),
                         "backend_version": state.get("backend_version", "api-v3"),
                         "adapter_version": adapter_version or state.get("adapter_version", ADAPTER_VERSION), "speaker_id": state["speaker_id"],
                         "resource_id": state["resource_id"], "audio": state["audio"], "mock": state["mock"]})
@@ -2043,7 +2199,7 @@ def create_client(state: dict[str, Any]) -> Any:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         EdgeTTSClient = module.EdgeTTSClient
-        config = {**state["config_snapshot"], "_staging_dir": str(state_store(Path(state["root"]), state["run_id"]).run_dir / "staging")}
+        config = {**state["config_snapshot"], "_staging_dir": str(staging_dir(Path(state["root"]), WORKFLOW, state["run_id"]))}
         return EdgeTTSClient(config, (TTSConfigurationError, TTSRetryableError, TTSVerificationError))
     try:
         api_key: str = dotenv_credential(Path(state["root"]), "VOLCENGINE_API_KEY")
@@ -2075,9 +2231,13 @@ def inspect_batch_artifacts(state: dict[str, Any], batch: dict[str, Any]) -> dic
         raise TTSVerificationError(f"{batch['batch_id']} 原始时间戳格式无效")
     if "backend" in state and not raw.get("synthesis_fingerprint"):
         raise TTSVerificationError("batch 缺少合成指纹")
-    if raw.get("synthesis_fingerprint") and raw["synthesis_fingerprint"] != synthesis_fingerprint(state, str(batch["text"])):
+    if raw.get("synthesis_fingerprint") and raw["synthesis_fingerprint"] != synthesis_fingerprint(state, str(batch["text"]), synthesis_start=int(batch["synthesis_span"]["start"])):
         raise TTSVerificationError("batch 后端或音频参数指纹不一致")
     items = normalize_items(raw["events"])
+    try:
+        items = context_rewrites.restore_items(items, str(batch["text"]), request_batch_text(state, str(batch["text"]), int(batch["synthesis_span"]["start"])))
+    except ValueError as exc:
+        raise TTSVerificationError(str(exc)) from exc
     sentences = derive_sentences(str(batch["text"]), items, word_boundaries=state.get("backend") == "edge-tts" and not state["mock"])
     duration = batch_audio_duration_ms(
         audio_path,
@@ -2179,7 +2339,7 @@ def measure_complete_audio_duration(state: dict[str, Any], store: WorkflowStateS
         for index, batch in enumerate(batches)
     ]
     audio_format = state["audio"]["format"]
-    temporary = store.run_dir / "staging" / f"duration-check.{FORMAT_EXTENSIONS[audio_format]}"
+    temporary = staging_dir(store.root, WORKFLOW, store.run_id) / f"duration-check.{FORMAT_EXTENSIONS[audio_format]}"
     try:
         merge_audio([inspect_batch_artifacts(state, batch)["audio_path"] for batch in batches], pauses,
                     temporary, audio_format, int(state["audio"]["sample_rate"]), leading)
@@ -2216,7 +2376,7 @@ def synthesize_batches(
     elif not preview_only and state["status"] == "batches_planned":
         store.transition(state, "synthesizing", stage="synthesizing")
     client = None
-    staging = store.run_dir / "staging"
+    staging = staging_dir(store.root, WORKFLOW, store.run_id)
     audio_format = str(state["audio"]["format"])
     extension = FORMAT_EXTENSIONS[audio_format]
     for batch in state["batches"]:
@@ -2229,6 +2389,17 @@ def synthesize_batches(
         audio_path, timestamp_path = batch_artifact_paths(state, batch)
         audio_path.parent.mkdir(parents=True, exist_ok=True)
         timestamp_path.parent.mkdir(parents=True, exist_ok=True)
+        if batch.get("status") == "reuse_pending":
+            base_raw = read_json(Path(batch["base_timestamp_path"]))
+            fingerprint = synthesis_fingerprint(state, str(batch["text"]), synthesis_start=int(batch["synthesis_span"]["start"]))
+            changed = base_raw.get("synthesis_fingerprint") != fingerprint if base_raw.get("synthesis_fingerprint") else request_batch_text(state, str(batch["text"]), int(batch["synthesis_span"]["start"])) != batch["text"]
+            if changed:
+                batch.update(status="pending", origin="generated")
+                revision = state.get("revision") or {}
+                revision["reused_batch_ids"] = [b for b in revision.get("reused_batch_ids", []) if b != batch["batch_id"]]
+                if batch["batch_id"] not in revision.get("affected_batch_ids", []):
+                    revision.setdefault("affected_batch_ids", []).append(batch["batch_id"])
+                checkpoint_batch(store, state, batch, event="context_changed_batch_regenerated")
         if batch.get("status") == "reuse_pending":
             base_audio = Path(str(batch.get("base_audio_path", "")))
             base_timestamps = Path(str(batch.get("base_timestamp_path", "")))
@@ -2300,7 +2471,7 @@ def synthesize_batches(
             if client is None:
                 client = create_client(state)
             audio_bytes, events = client.synthesize(
-                str(batch["text"]), state["speaker_id"], state["resource_id"], state["audio"]
+                request_batch_text(state, str(batch["text"]), int(batch["synthesis_span"]["start"])), state["speaker_id"], state["resource_id"], state["audio"]
             )
             staged_audio = staging / f"{batch['batch_id']}.staged.{extension}"
             staged_timestamps = staging / f"{batch['batch_id']}.timestamps.staged.json"
@@ -2311,10 +2482,15 @@ def synthesize_batches(
             write_json(
                 staged_timestamps,
                 {"batch_index": batch["index"], "text": batch["text"], "events": events,
-                 "synthesis_fingerprint": synthesis_fingerprint(state, str(batch["text"])),
+                 "synthesis_fingerprint": synthesis_fingerprint(state, str(batch["text"]), synthesis_start=int(batch["synthesis_span"]["start"])),
                  "adapter_version": state.get("adapter_version", ADAPTER_VERSION)},
             )
-            normalize_items(events)
+            normalized = normalize_items(events)
+            try:
+                context_rewrites.restore_items(normalized, str(batch["text"]),
+                    request_batch_text(state, str(batch["text"]), int(batch["synthesis_span"]["start"])))
+            except ValueError as exc:
+                raise TTSVerificationError(str(exc)) from exc
             os.replace(staged_audio, audio_path)
             batch.update(
                 status="audio_ready",
@@ -2411,7 +2587,7 @@ def render_preview(state: dict[str, Any], store: WorkflowStateStore) -> dict[str
     output_dir = Path(state["output_dir"])
     version_dir = output_dir / "preview" / version_id
     version_dir.mkdir(parents=True, exist_ok=False)
-    staging = store.run_dir / "staging"
+    staging = staging_dir(store.root, WORKFLOW, store.run_id)
     audio_format = str(state["audio"]["format"])
     sample_rate = int(state["audio"]["sample_rate"])
     extension = FORMAT_EXTENSIONS[audio_format]
@@ -2646,7 +2822,7 @@ def merge_and_build_timestamps(state: dict[str, Any], store: WorkflowStateStore)
         for boundary, explicit in zip(boundary_pauses, explicit_pauses_after)
     ]
     output_dir = Path(state["output_dir"])
-    staging = store.run_dir / "staging"
+    staging = staging_dir(store.root, WORKFLOW, store.run_id)
     audio_format = str(state["audio"]["format"])
     extension = FORMAT_EXTENSIONS[audio_format]
     noise_config = dict(config.get("white_noise") or {"enabled": False})
@@ -2970,7 +3146,9 @@ def finalize_verification(state: dict[str, Any], store: WorkflowStateStore) -> d
 
 def compact_receipt(state: dict[str, Any]) -> dict[str, Any]:
     next_action = None
-    if state["status"] == "paused_preview_approval":
+    if state["status"] == "awaiting_context_decisions":
+        next_action = "apply-context-decisions"
+    elif state["status"] == "paused_preview_approval":
         next_action = "approve-preview-or-retry-preview"
     elif state["status"] == "paused_transcript_not_ready":
         component = read_json(open_workspace(Path(state["workspace_dir"])).pipeline_manifest)["components"]["transcript"]
@@ -2988,6 +3166,7 @@ def compact_receipt(state: dict[str, Any]) -> dict[str, Any]:
         "output_dir": state.get("output_dir"),
         "error": state.get("error"),
         "next_action": next_action,
+        "pending_decisions": state.get("pending_decisions", []),
     }
     if state.get("verification") is not None:
         receipt["verification"] = state["verification"]
@@ -3228,7 +3407,16 @@ def advance_state_machine(state: dict[str, Any], store: WorkflowStateStore) -> d
                 state = validate_transcript_checkpoint(state, store)
             elif status == "transcript_validated":
                 state = stage_input(state, store)
-            elif status == "input_staged":
+            elif status in {"input_staged", "scanning_context"}:
+                if state["input"].get("context_rewrite_version"):
+                    state = prepare_context(state, store)
+                else:
+                    state = plan_batches(state, store)
+            elif status == "awaiting_context_decisions":
+                return state
+            elif status == "applying_context_rewrites":
+                state = apply_context(state, store)
+            elif status == "validating_context_rewrites":
                 state = plan_batches(state, store)
             elif status == "batches_planned":
                 if bool(state["config_snapshot"]["preview"]["enabled"]):
@@ -3399,12 +3587,29 @@ def verify_output(
         timestamp_file = Path(str(batch.get("timestamp_path", "")))
         if timestamp_file.is_file():
             raw_timestamps = read_json(timestamp_file)
+            if input_info := manifest.get("input"):
+                if input_info.get("context_rewrites"):
+                    try:
+                        restored_items = context_rewrites.restore_items(normalize_items(raw_timestamps["events"]), str(batch["text"]), request_batch_text(manifest, str(batch["text"]), int(batch["synthesis_span"]["start"])))
+                        actual_items = [{k: item[k] for k in ("text", "start_ms", "end_ms")} for item in timestamps.get("items", []) if item.get("batch_index") == batch["index"]]
+                        offset = next(b["start_ms"] for b in timestamps["batches"] if b["batch_id"] == batch["batch_id"])
+                        expected_items = [{**item, "start_ms": item["start_ms"] + offset, "end_ms": item["end_ms"] + offset} for item in restored_items]
+                        if actual_items != expected_items:
+                            errors.append("公开词级时间戳与语境还原结果不一致")
+                        restored_sentences = derive_sentences(str(batch["text"]), restored_items,
+                            word_boundaries=manifest.get("backend") == "edge-tts" and not manifest["mock"])
+                        actual_sentences = [{k: sentence[k] for k in ("text", "start_ms", "end_ms")} for sentence in timestamps.get("sentences", []) if sentence.get("batch_index") == batch["index"]]
+                        expected_sentences = [{"text": sentence["text"], "start_ms": sentence["start_ms"] + offset, "end_ms": sentence["end_ms"] + offset} for sentence in restored_sentences]
+                        if actual_sentences != expected_sentences:
+                            errors.append("公开句级时间戳与语境还原结果不一致")
+                    except (ValueError, OSError, KeyError, TypeError, StopIteration, TTSWorkflowError) as exc:
+                        errors.append("语境时间戳无法验证：" + str(exc))
             if raw_timestamps.get("text") != batch.get("text"):
                 errors.append(f"{batch.get('batch_id')} 原始时间戳文本与 batch 文本不一致")
             if schema_version == 4 and not raw_timestamps.get("synthesis_fingerprint"):
                 errors.append(f"{batch.get('batch_id')} 缺少合成指纹")
             if schema_version == 4 and raw_timestamps.get("synthesis_fingerprint"):
-                if raw_timestamps["synthesis_fingerprint"] != synthesis_fingerprint(manifest, str(batch["text"]), adapter_version=raw_timestamps.get("adapter_version", "1")):
+                if raw_timestamps["synthesis_fingerprint"] != synthesis_fingerprint(manifest, str(batch["text"]), adapter_version=raw_timestamps.get("adapter_version", "1"), synthesis_start=int(batch["synthesis_span"]["start"])):
                     errors.append(f"{batch.get('batch_id')} 合成后端或参数指纹不一致")
     input_info = manifest.get("input") or {}
     copied_path = Path(str(input_info.get("copied_path", "")))
@@ -3421,6 +3626,9 @@ def verify_output(
         try:
             copied_text = validate_utf8_input(copied_path)
             synthesis_text = validate_utf8_input(synthesis_path)
+            if input_info.get("context_rewrite_version") and not input_info.get("context_rewrites"):
+                raise TTSVerificationError("缺少已验证的语境改写快照")
+            validate_context_input(input_info, synthesis_text)
             synthesis_policy = dict(input_info.get("synthesis_policy") or {})
             if synthesis_text != normalize_synthesis_text(
                 copied_text, str(synthesis_policy.get("missing_sentence_ending", "。"))
@@ -3495,6 +3703,8 @@ def verify_output(
         saved_state = read_json(saved_state_path)
         if saved_state.get("config_sha256") != json_sha256(saved_state.get("config_snapshot") or {}):
             errors.append("运行配置快照指纹不一致")
+        if saved_state.get("input") != manifest.get("input"):
+            errors.append("manifest 输入及语境快照与运行状态不一致")
         if saved_state.get("preview") != manifest.get("preview"):
             errors.append("manifest 试听记录与运行状态不一致")
         preview_config = (saved_state.get("config_snapshot") or {}).get("preview") or {}
@@ -3560,6 +3770,8 @@ def add_common_audio_arguments(parser: argparse.ArgumentParser) -> None:
 def configure_start_parser(parser: argparse.ArgumentParser, *, allow_backend: bool = True) -> None:
     parser.add_argument("--root", default=str(DEFAULT_PROJECT_DIR))
     parser.add_argument("--speaker")
+    parser.add_argument('--skip-preview', action='store_true', help='显式关闭本次试听，策略保存于配置快照')
+    parser.add_argument('--requested-run-id', help='编排器预先登记的运行 ID；已有运行不覆盖')
     if allow_backend:
         parser.add_argument("--backend", choices=BACKENDS, help="本次后端覆盖；恢复使用运行快照")
     source = parser.add_mutually_exclusive_group(required=False)
@@ -3578,6 +3790,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     configure_start_parser(subparsers.add_parser("start", help="创建状态机运行并自动推进"))
     configure_start_parser(subparsers.add_parser("run", help="start 的兼容别名"))
+
+    context_parser = subparsers.add_parser("apply-context-decisions", help="提交地字语境判断并继续合成")
+    context_parser.add_argument("--root", default=str(DEFAULT_PROJECT_DIR))
+    context_parser.add_argument("--run-id", required=True)
+    context_parser.add_argument("--input", required=True, type=Path)
 
     resume_parser = subparsers.add_parser("resume", help="从运行状态恢复")
     resume_parser.add_argument("--root", default=str(DEFAULT_PROJECT_DIR))
@@ -3678,7 +3895,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             with store.lock():
                 state = store.load()
-                if args.command == "supersede":
+                if args.command == "apply-context-decisions":
+                    state = submit_context_decisions(state, store, read_json(args.input))
+                    state = advance_state_machine(state, store)
+                elif args.command == "supersede":
                     state = store.supersede(state, reason=args.reason)
                 elif state["status"] == "completed":
                     pass
@@ -3702,6 +3922,8 @@ def main(argv: list[str] | None = None) -> int:
                         receipt = compact_receipt(state)
                         print(json.dumps(receipt, ensure_ascii=False, indent=2))
                         return 1 if state["status"] == "failed_terminal" else 0
+                    if state["status"] == "awaiting_context_decisions":
+                        raise CommandStateError("语境决策不能通过 resume 越过；请使用 apply-context-decisions")
                     if state["status"] == "paused_preview_approval":
                         raise WorkflowStateError(
                             "试听确认不能通过 resume 越过；请使用 approve-preview 或 retry-preview"

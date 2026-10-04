@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "pairs": [
+    {
+      "source_block_ids": [
+        "b001"
+      ],
+      "question": "",
+      "answer": ""
+    }
+  ]
+}

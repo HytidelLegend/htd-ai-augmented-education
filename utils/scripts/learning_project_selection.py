@@ -12,8 +12,8 @@ from .file_transaction import project_lock
 from .learning_navigation_bundle import load_navigation_bundle
 
 ROOT = Path(__file__).resolve().parents[2]
-NAV = 'beta-build-curriculum-navigation'
-TUTOR = 'beta-interactive-tutor'
+NAV = 'build-curriculum-navigation'
+TUTOR = 'interactive-tutor'
 TRANSITIONS = {
     'discovering_projects': {'awaiting_project_selection', 'navigation_required'},
     'awaiting_project_selection': {'validating_selection', 'discovering_projects'},
@@ -67,6 +67,8 @@ def tutor_projects(root: Path, navigation: Path):
     for path in sorted(paths):
         try:
             path = safe_path(root, path)
+            from .learning_project_management import entry
+            if entry(root, read_json(path)['project_id']).get('archived'): continue
             model_path = safe_path(root, path.parent / 'artifacts/学习路线.json')
             if not path.is_file() or not model_path.is_file():
                 continue
@@ -142,9 +144,12 @@ def discover(root: Path):
                         continue
                 if nav is None:
                     continue
+            from .learning_project_management import entry as management_entry
+            managed = management_entry(root, 'nav-' + run_id)
+            if managed.get('archived'): continue
             relative = path.relative_to(root).as_posix()
             entry = {'candidate_id': 'NAV-' + json_digest(relative)[:16],
-                            'run_id': run_id, 'title': nav['title'], 'updated_at': nav['updated_at'],
+                            'run_id': run_id, 'title': managed.get('title',nav['title']), 'updated_at': nav['updated_at'],
                             'navigation_path': relative, 'navigation_status': 'completed',
                             'availability': 'available', 'reason': reason,
                             'tutor_projects': projects}
@@ -162,7 +167,7 @@ def discover(root: Path):
 
 def render(catalog):
     if not catalog['entries']:
-        return '没有已完成且有效的学习导航，请先调用 beta-build-curriculum-navigation 完成导航。\n'
+        return '没有已完成且有效的学习导航，请先调用 build-curriculum-navigation 完成导航。\n'
     return markdown_table(['序号', '项目名称', 'run ID', '更新时间', '状态', '已有导师项目数'],
                           [(i, e['title'], e['run_id'], e['updated_at'],
                             '可恢复；新建需原材料' if e['reason'] else '可选择', len(e['tutor_projects']))

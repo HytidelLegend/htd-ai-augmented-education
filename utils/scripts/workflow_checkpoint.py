@@ -19,7 +19,7 @@ def create_run_directory(root: Path) -> Path:
 
 
 class WorkflowCheckpoint:
-    def __init__(self, transitions: dict[str, tuple[str, ...]], run_dir: Path | None = None, *, resume: bool = False):
+    def __init__(self, transitions: dict[str, tuple[str, ...]], run_dir: Path | None = None, *, resume: bool = False, restart_completed: bool = True):
         self.transitions = transitions
         self.run_dir = run_dir
         self.state = "prepared"
@@ -34,7 +34,7 @@ class WorkflowCheckpoint:
                     or any(after not in transitions.get(before, ()) for before, after in zip(history, history[1:]))):
                 raise ValueError('状态机检查点或迁移历史无效')
             # A completed publication begins a new cycle; unfinished work keeps its history.
-            if state != 'completed':
+            if state != 'completed' or not restart_completed:
                 self.state, self.history = state, history
                 self.details = {key: value for key, value in saved.items()
                                 if key not in ('state', 'stateHistory', 'updatedAt')}

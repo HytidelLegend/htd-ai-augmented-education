@@ -27,7 +27,7 @@ runtime/.venv/Scripts/python.exe skills/schedule-ebbinghaus-plan/scripts/cli.py 
 runtime/.venv/Scripts/python.exe skills/schedule-ebbinghaus-plan/scripts/cli.py deliver --root . --run-id <run-id>
 ```
 
-`start` 和 `resume` 输出包含运行 ID 与状态的 JSON 回执。`resume --input` 用于修订暂停运行的请求；无 `--input` 时重试。`deliver` 在重新验证后输出用户可读 Markdown。退出码遵循 `docs/Skills_说明书.md`。
+`start` 和 `resume` 输出包含运行 ID 与状态的 JSON 回执。`resume --input` 用于修订暂停运行的请求；无 `--input` 时重试。`deliver` 在重新验证后输出用户可读 Markdown。退出码遵循 `docs/Skills、应用说明书.md`。
 
 ## 状态机与产物
 
@@ -40,3 +40,18 @@ runtime/.venv/Scripts/python.exe skills/schedule-ebbinghaus-plan/scripts/cli.py 
 - `references/request.schema.json`：请求结构。
 - `references/result.schema.json`：正式 JSON 结构。
 - `utils/scripts/spaced_repetition.py`：可供其他 Skill 复用的 batch 排程和 Markdown 渲染函数。
+
+## 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: plan-numbered-items
+    user_request: "将编号 1 到 30 的内容安排在 10 天内首次背完，并列出后续复习"
+    when_to_call: "用户给出 item 数量和完成天数，要求生成分批背诵与复习日程时"
+    invocation: "start → verify → deliver；暂停后使用 resume"
+    expected_output: "返回经验证的逐日 item 编号 JSON，并由脚本渲染对应 Markdown"
+```
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

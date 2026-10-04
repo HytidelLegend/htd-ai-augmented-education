@@ -76,13 +76,13 @@ def write_text_atomic(path: Path, text: str) -> None:
     write_text_transaction({path: text})
 
 
-def write_text_transaction(updates: Mapping[Path, str]) -> None:
+def write_text_transaction(updates: Mapping[Path, str | bytes]) -> None:
     """Atomically replace multiple UTF-8/LF text files with rollback on failure."""
     from utils.scripts.dictionary_records import EntryRecord, commit_records
     if any(isinstance(path, EntryRecord) for path in updates):
         commit_records(dict(updates))
         return
-    entries = [(Path(path), str(value).replace("\r\n", "\n").replace("\r", "\n")) for path, value in updates.items()]
+    entries = [(Path(path), value if isinstance(value, bytes) else str(value).replace("\r\n", "\n").replace("\r", "\n")) for path, value in updates.items()]
     if not entries:
         return
     if len({path.resolve() for path, _ in entries}) != len(entries):
@@ -109,7 +109,7 @@ def write_text_transaction(updates: Mapping[Path, str]) -> None:
     try:
         for target, text in entries:
             originals[target] = target.read_bytes() if target.exists() else None
-            staged[target] = stage_bytes(target, text.encode("utf-8"))
+            staged[target] = stage_bytes(target, text if isinstance(text, bytes) else text.encode("utf-8"))
         for target, _ in entries:
             os.replace(staged[target], target)
             replaced.append(target)

@@ -1,0 +1,14 @@
+schema_version: 1
+tts:
+  backend: edge-tts
+  voices:
+    volcengine:
+      # 大雄提问，哆啦 A 梦回答；资源 ID 由现有音色映射解析。
+      questioner: S_NBxS5KRZ1
+      answerer: S_QBxS5KRZ1
+    edge-tts:
+      # 云扬提问，晓艺回答。
+      questioner: zh-CN-YunyangNeural
+      answerer: zh-CN-XiaoyiNeural
+  question_to_answer_gap_ms: 0
+  answer_to_question_gap_ms: 0

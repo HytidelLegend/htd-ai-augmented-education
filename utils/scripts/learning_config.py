@@ -6,7 +6,7 @@ from .timestamp import iso_timestamp
 from .file_transaction import project_lock
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILLS = ('beta-build-curriculum-navigation', 'beta-interactive-tutor')
+SKILLS = ('build-curriculum-navigation', 'interactive-tutor')
 
 def validate_config(skill, value):
     if skill not in SKILLS or not isinstance(value, dict):
@@ -18,7 +18,8 @@ def validate_config(skill, value):
               'lesson': {'max_multiple_choice_questions', 'max_open_ended_questions', 'max_new_units'},
               'mastery': {'good_min', 'medium_min'}, 'podcast': {'enabled'}}
     for group in expected:
-        if not isinstance(value[group], dict) or set(value[group]) != fields[group]:
+        allowed = fields[group] | ({'reference_chars_min', 'reference_chars_max'} if group == 'lesson' else set())
+        if not isinstance(value[group], dict) or not fields[group] <= set(value[group]) or not set(value[group]) <= allowed:
             raise ValueError(f'配置字段无效：{group}')
     if skill == SKILLS[0]:
         nums = [value['assessment']['max_multiple_choice_questions'], value['ordering']['max_candidate_orders']]
@@ -28,7 +29,10 @@ def validate_config(skill, value):
         if any(type(x) not in (int, float) or not 0 <= x <= 1 for x in weights.values()) or abs(sum(weights.values()) - 1) > 1e-8:
             raise ValueError('权重必须非负且总和为 1')
     else:
-        nums = list(value['lesson'].values())
+        nums = [value['lesson'][key] for key in fields['lesson']]
+        low, high = value['lesson'].get('reference_chars_min', 800), value['lesson'].get('reference_chars_max', 1500)
+        if type(low) is not int or type(high) is not int or not 0 <= low <= high <= 10000:
+            raise ValueError('讲解参考字数须满足 0 ≤ 下限 ≤ 上限 ≤ 10000；正文长度为软参考，偏短须复核')
         m = value['mastery']
         if any(type(x) not in (int, float) for x in m.values()) or not 0 <= m['medium_min'] <= m['good_min'] <= 1:
             raise ValueError('掌握阈值必须满足 0 ≤ 中等 ≤ 良好 ≤ 1')

@@ -1,5 +1,6 @@
 """Render deterministic Markdown voice tables from voices.yaml; --check is read-only."""
 import argparse
+import json
 import sys
 from pathlib import Path
 import yaml
@@ -9,6 +10,28 @@ sys.path.insert(0, str(SKILL.parents[1]))
 sys.path.insert(0, str(SKILL.parent / "convert-copy-to-transcript/scripts"))
 START = "<!-- voice-mapping:start -->"
 END = "<!-- voice-mapping:end -->"
+CONTEXT_START = "<!-- context-decisions:start -->"
+CONTEXT_END = "<!-- context-decisions:end -->"
+
+
+def render_context() -> str:
+    from utils.scripts.speech_context_rewrites import scan, template
+    example = template(scan("欣然地笑。"))
+    example["decisions"][0]["action"] = "replace"
+    return "\n".join([CONTEXT_START, "```json", json.dumps(example, ensure_ascii=False, indent=2),
+                      "```", CONTEXT_END])
+
+
+def update_context_docs(check: bool) -> None:
+    path = SKILL / "SKILL.md"
+    original = path.read_text(encoding="utf-8")
+    before, tail = original.split(CONTEXT_START, 1)
+    _, after = tail.split(CONTEXT_END, 1)
+    updated = before + render_context() + after
+    if check and updated != original:
+        raise SystemExit("语境决策模板过期")
+    if not check:
+        path.write_text(updated, encoding="utf-8")
 
 
 def render() -> str:
@@ -25,7 +48,11 @@ def render() -> str:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--context-only", action="store_true", help="仅生成或校验语境决策模板")
     args = parser.parse_args()
+    if args.context_only:
+        update_context_docs(args.check)
+        return
     for filename in ("SKILL.md", "README.md"):
         path = SKILL / filename
         original = path.read_text(encoding="utf-8")
@@ -58,6 +85,7 @@ def main():
         raise SystemExit("转换状态命令表过期")
     if not args.check:
         path.write_text(updated, encoding="utf-8")
+    update_context_docs(args.check)
 
 
 if __name__ == "__main__":

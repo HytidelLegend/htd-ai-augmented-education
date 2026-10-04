@@ -1,4 +1,15 @@
-schema_version: "1.0"
+schema_version: "1.1"
+exact_match_exclusions:
+  - path: README.md
+    category: email
+    value_sha256: 927292f01f7f6e21ddf7e713326f0d9033053ddb66dcfc4e11c93f66e194992f
+    context: 申请授权请发送邮件至
+semantic_match_exclusions:
+  - category: personal_fortune
+    marker: 八字
+    phrases:
+      - 八字段目录
+      - 八字段模板
 text_extensions:
   - .cfg
   - .css

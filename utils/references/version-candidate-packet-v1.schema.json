@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "scope", "head", "commits", "packet_sha256"],
+  "properties": {
+    "schema_version": {"const": "1.1"},
+    "mode": {"const": "staged"},
+    "scope": {"const": "staged_and_untracked"},
+    "head": {"$ref": "#/$defs/oid"},
+    "packet_sha256": {"$ref": "#/$defs/sha256"},
+    "commits": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["version", "commit", "parent", "evidence"],
+        "properties": {
+          "version": {"type": "string", "pattern": "^0\\.1\\.(0|[1-9][0-9]*)$"},
+          "commit": {"type": "null"},
+          "parent": {"$ref": "#/$defs/oid"},
+          "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "oid": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evidence_id", "path", "source", "mode", "blob_oid", "patch", "patch_sha256"],
+      "properties": {
+        "evidence_id": {"type": "string", "pattern": "^E[0-9]{4,}$"},
+        "path": {"type": "string", "minLength": 1},
+        "source": {"enum": ["staged", "untracked"]},
+        "mode": {"enum": ["000000", "100644", "100755", "120000", "160000"]},
+        "blob_oid": {"anyOf": [{"$ref": "#/$defs/oid"}, {"type": "null"}]},
+        "patch": {"type": "string"},
+        "patch_sha256": {"$ref": "#/$defs/sha256"},
+        "file_type": {"enum": ["text", "binary", "symlink"]},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "content_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"source": {"const": "untracked"}}},
+          "then": {
+            "required": ["file_type", "size_bytes", "content_sha256"],
+            "properties": {
+              "blob_oid": {"$ref": "#/$defs/oid"},
+              "mode": {"enum": ["100644", "100755", "120000"]}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

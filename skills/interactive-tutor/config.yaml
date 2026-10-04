@@ -1,0 +1,11 @@
+lesson:
+  max_multiple_choice_questions: 3
+  max_open_ended_questions: 2
+  max_new_units: 3
+  reference_chars_min: 800
+  reference_chars_max: 1500
+mastery:
+  good_min: 0.8
+  medium_min: 0.6
+podcast:
+  enabled: false

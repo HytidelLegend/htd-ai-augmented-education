@@ -35,3 +35,18 @@ runtime/.venv/Scripts/python.exe skills/render-handwritten-essay-card/scripts/cl
 ## 对话交付
 
 必须通过 `deliver --mode preview` 读取并原样发送 `delivery.message_markdown`：一个完整提示词代码块，随后是确认问题。不得只发送确认问题。提示词必须保留作文原文、段落顺序和标点意图，并明确要求通用英语考试答题卡、手写印刷体、真实拍摄效果；负面提示词必须禁止电脑字体、连笔书法、装饰字体、增删改写正文和不可读文字。
+
+## 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: render-essay-card
+    user_request: "把这篇英语作文生成通用考试答题卡上的手写照片"
+    when_to_call: "用户要求生成作文答题卡照片或手写作文图片时"
+    invocation: "start → deliver --mode preview → 用户确认 → resume"
+    expected_output: "先展示完整生图提示词，确认后生成并验证图片"
+```
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

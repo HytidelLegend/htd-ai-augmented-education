@@ -74,3 +74,18 @@ Agent 草稿若把源关键词从术语中间切开，状态进入 `paused_agent
 - `references/request.schema.json`：请求 schema。
 - `references/agent-response.schema.json`：Agent 草稿 schema。
 - `references/output.schema.json`：正式结果 schema。
+
+## 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: memorize-one-sentence
+    user_request: "请帮我记住我国温度带从南到北的顺序，并给一个能生成图片的联想场景"
+    when_to_call: "用户提供一句需要背诵的知识，要求提取关键词、联想记忆或视觉化图片时"
+    invocation: "start → resume → deliver --mode preview → 用户确认 → resume"
+    expected_output: "返回关键词、联想记忆、自检结论、生图提示词；确认后归档 /imagegen 图片"
+```
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

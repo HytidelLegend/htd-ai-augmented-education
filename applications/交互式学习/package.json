@@ -1,0 +1,13 @@
+{
+  "name": "interactive-learning",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5177",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {"react": "^19.1.1", "react-dom": "^19.1.1"},
+  "devDependencies": {"@types/react": "^19.1.8", "@types/react-dom": "^19.1.6", "@vitejs/plugin-react": "^4.7.0", "typescript": "~5.9.2", "vite": "^6.3.5"}
+}

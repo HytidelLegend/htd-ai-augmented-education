@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["source_id", "source_sha256", "points", "ignored_fragments"],
+  "additionalProperties": false,
+  "properties": {
+    "source_id": {"type": "string"},
+    "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "points": {"type": "array", "minItems": 1, "items": {
+      "type": "object", "required": ["summary", "fragment_ids", "track", "reason"], "additionalProperties": false,
+      "properties": {
+        "summary": {"type": "string", "minLength": 1},
+        "fragment_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "track": {"enum": ["main", "branch"]}, "reason": {"type": "string", "minLength": 1}
+      }
+    }},
+    "ignored_fragments": {"type": "array", "items": {
+      "type": "object", "required": ["fragment_id", "reason"], "additionalProperties": false,
+      "properties": {"fragment_id": {"type": "string"}, "reason": {"type": "string", "minLength": 1}}
+    }}
+  }
+}

@@ -10,7 +10,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-WAITING = {"awaiting_semantic_decisions", "awaiting_transcript_approval", "revision_required", "preview_ready"}
+WAITING = {"awaiting_context_decisions", "awaiting_semantic_decisions", "awaiting_transcript_approval", "revision_required", "preview_ready"}
 
 
 class CommandStateError(ValueError):

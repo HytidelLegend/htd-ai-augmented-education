@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "tts": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "enum": [
+            "edge-tts",
+            "volcengine"
+          ]
+        },
+        "voices": {
+          "type": "object",
+          "properties": {
+            "edge-tts": {
+              "type": "object",
+              "properties": {
+                "questioner": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "answerer": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "questioner",
+                "answerer"
+              ],
+              "additionalProperties": false
+            },
+            "volcengine": {
+              "type": "object",
+              "properties": {
+                "questioner": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "answerer": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "questioner",
+                "answerer"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "edge-tts",
+            "volcengine"
+          ],
+          "additionalProperties": false
+        },
+        "question_to_answer_gap_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        },
+        "answer_to_question_gap_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        }
+      },
+      "required": [
+        "backend",
+        "voices",
+        "question_to_answer_gap_ms",
+        "answer_to_question_gap_ms"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "tts"
+  ],
+  "additionalProperties": false
+}

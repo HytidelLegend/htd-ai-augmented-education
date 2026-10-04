@@ -1,0 +1,222 @@
+[
+  {
+    "kind": "skill",
+    "name": "htd-ai-augmented-education",
+    "category": "项目功能",
+    "subcategory": "",
+    "function": "回答项目信息，并推荐能够完成任务的 Skills",
+    "when": "询问本项目，或需要规范任务、确定 Skill 及调用顺序时",
+    "entry": "python skills/htd-ai-augmented-education/scripts/cli.py start --root . --input request.json",
+    "document": "skills/htd-ai-augmented-education/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "project-doc-audit",
+    "category": "项目功能",
+    "subcategory": "",
+    "function": "检查项目文档、文件结构、工具清单、版本和运行环境",
+    "when": "需要审计项目文档、检查说明是否过期或核对项目状态时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/project-doc-audit/scripts/cli.py start --root .",
+    "document": "skills/project-doc-audit/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "update-project-version",
+    "category": "项目功能",
+    "subcategory": "",
+    "function": "读取暂存差异和未被 Git 忽略的新文件并总结更新，用户确认后同步版本号与更新历史",
+    "when": "准备本项目新版本或同步版本文件时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/update-project-version/scripts/cli.py start --root .",
+    "document": "skills/update-project-version/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "sensitive-commit-check",
+    "category": "项目功能",
+    "subcategory": "",
+    "function": "检查提交范围中的敏感信息",
+    "when": "提交、推送或发布前",
+    "entry": "runtime/.venv/Scripts/python.exe skills/sensitive-commit-check/scripts/cli.py start --scope staged",
+    "document": "skills/sensitive-commit-check/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "git-remote-diff",
+    "category": "项目功能",
+    "subcategory": "",
+    "function": "比较本地仓库、远端默认分支和工作区",
+    "when": "需要检查 Git 同步状态时",
+    "entry": "python skills/git-remote-diff/scripts/cli.py start --root .",
+    "document": "skills/git-remote-diff/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "convert-copy-to-transcript",
+    "category": "通用工具",
+    "subcategory": "",
+    "function": "文案转逐字稿",
+    "when": "用户要求把文案转换为口播稿、逐字稿或 TTS 输入时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/convert-copy-to-transcript/scripts/cli.py start --root . --input-file copy.txt",
+    "document": "skills/convert-copy-to-transcript/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "create-dialogue-podcast",
+    "category": "通用工具",
+    "subcategory": "",
+    "function": "书面内容转两人一问一答播客",
+    "when": "文章或课程讲义转双音色音频时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/create-dialogue-podcast/scripts/cli.py start --input-file article.txt",
+    "document": "skills/create-dialogue-podcast/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "format-conversion-master",
+    "category": "通用工具",
+    "subcategory": "",
+    "function": "格式转换",
+    "when": "用户要求转换文件格式时",
+    "entry": "python skills/format-conversion-master/scripts/cli.py start --input input.epub --to pdf",
+    "document": "skills/format-conversion-master/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "run-speech-to-text",
+    "category": "通用工具",
+    "subcategory": "",
+    "function": "语音转文字",
+    "when": "用户要求语音转文字、提取时间戳或批量生成逐字稿时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/run-speech-to-text/scripts/cli.py start --root . --input audio.mp3",
+    "document": "skills/run-speech-to-text/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "run-text-to-speech",
+    "category": "通用工具",
+    "subcategory": "",
+    "function": "文字转语音",
+    "when": "用户要求文字转语音、生成朗读音频、试听或修订已有合成语音时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/run-text-to-speech/scripts/cli.py start --input-file transcript.txt",
+    "document": "skills/run-text-to-speech/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "build-mnemonic-keywords",
+    "category": "AI 辅助学习",
+    "subcategory": "背诵与记忆",
+    "function": "将一句背诵内容转为关键词、联想场景和生图提示词",
+    "when": "用户要求联想记忆、记忆口诀、场景化背诵或将记忆法生成图片时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/build-mnemonic-keywords/scripts/cli.py start --root . --input request.json",
+    "document": "skills/build-mnemonic-keywords/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "mark-memory-spans",
+    "category": "AI 辅助学习",
+    "subcategory": "背诵与记忆",
+    "function": "提取并标记文本记忆要点，支持挖空练习和要点编辑",
+    "when": "用户要求标记背诵重点、提取记忆要点、生成挖空文本或修改已有记忆要点 时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/mark-memory-spans/scripts/cli.py start --root . --input request.json",
+    "document": "skills/mark-memory-spans/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "schedule-ebbinghaus-plan",
+    "category": "AI 辅助学习",
+    "subcategory": "背诵与记忆",
+    "function": "规划符合艾宾浩斯遗忘曲线的学习和复习",
+    "when": "用户指定 n，以及每天 item 数或首遍天数，并要求按艾宾浩斯规则生成逐日背诵计划时",
+    "entry": "runtime/.venv/Scripts/python.exe skills/schedule-ebbinghaus-plan/scripts/cli.py start --root . --input request.json",
+    "document": "skills/schedule-ebbinghaus-plan/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "build-curriculum-navigation",
+    "category": "AI 辅助学习",
+    "subcategory": "交互式学习",
+    "function": "整理学习资料和知识点之间的先后关系，规划学习顺序",
+    "when": "用户要建立课程索引、安排跨资料学习顺序或插入新资料时",
+    "entry": "python skills/build-curriculum-navigation/scripts/cli.py prepare --root . --request request.json",
+    "document": "skills/build-curriculum-navigation/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "interactive-tutor",
+    "category": "AI 辅助学习",
+    "subcategory": "交互式学习",
+    "function": "依据学习导航开展课程讲解、批改和答疑，维护学习进度",
+    "when": "用户要开始或继续交互式学习、作答或获取学习报告时",
+    "entry": "python skills/interactive-tutor/scripts/cli.py start --root . --request request.json",
+    "document": "skills/interactive-tutor/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "build-word-entry",
+    "category": "AI 辅助学习",
+    "subcategory": "英语",
+    "function": "生成英语词条",
+    "when": "用户要建立词条、批量处理词表或恢复运行时",
+    "entry": "python skills/build-word-entry/scripts/cli.py start-word --root . --word bank",
+    "document": "skills/build-word-entry/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "en-writing-master",
+    "category": "AI 辅助学习",
+    "subcategory": "英语",
+    "function": "创建作文工具，并按已有工具执行英语写作、批改和润色",
+    "when": "用户提供写作规则、写作题目、作文或润色请求时",
+    "entry": "python skills/en-writing-master/scripts/cli.py list-tools --root .",
+    "document": "skills/en-writing-master/SKILL.md"
+  },
+  {
+    "kind": "skill",
+    "name": "render-handwritten-essay-card",
+    "category": "AI 辅助学习",
+    "subcategory": "绘图",
+    "function": "将英语作文生成通用英语考试答题卡手写印刷体照片提示词",
+    "when": "用户提供英语作文并要求生成答题卡照片时",
+    "entry": "python skills/render-handwritten-essay-card/scripts/cli.py start --root . --input request.json",
+    "document": "skills/render-handwritten-essay-card/SKILL.md"
+  },
+  {
+    "kind": "application",
+    "name": "背书工具",
+    "category": "背诵与记忆",
+    "subcategory": "",
+    "function": "标记文本中的记忆要点，通过挖空练习进行背诵",
+    "when": "",
+    "entry": "在 applications/背书工具/ 中运行 ./run.ps1（首次启动先按应用说明安装依赖）",
+    "document": "applications/背书工具/README.md"
+  },
+  {
+    "kind": "application",
+    "name": "背图工具",
+    "category": "背诵与记忆",
+    "subcategory": "",
+    "function": "遮住图片中的部分内容，通过隐藏和显示进行回忆练习",
+    "when": "",
+    "entry": "在 applications/背图工具/ 中运行 ./run.ps1 -Preview（首次启动先按应用说明安装依赖）",
+    "document": "applications/背图工具/README.md"
+  },
+  {
+    "kind": "application",
+    "name": "交互式学习",
+    "category": "交互式学习",
+    "subcategory": "",
+    "function": "查看学习项目、课程图和知识点图，管理项目与学习设置",
+    "when": "",
+    "entry": "在 applications/交互式学习/ 中运行 ./run.ps1（首次启动先按应用说明安装依赖）",
+    "document": "applications/交互式学习/README.md"
+  },
+  {
+    "kind": "application",
+    "name": "词汇星图",
+    "category": "英语",
+    "subcategory": "",
+    "function": "浏览词条和词汇关系图，管理词表、收藏与背诵计划",
+    "when": "",
+    "entry": "在 applications/词汇星图/ 中运行 ./run.ps1（首次启动先按应用说明安装依赖）",
+    "document": "applications/词汇星图/README.md"
+  }
+]

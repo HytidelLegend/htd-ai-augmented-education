@@ -28,7 +28,8 @@
     "status": {
       "enum": [
         "in_progress",
-        "completed"
+        "completed",
+        "main_completed"
       ]
     },
     "updated_at": {
@@ -42,6 +43,18 @@
     },
     "run_dir": {
       "type": "string"
+    },
+    "created_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_learning_at": {
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "additionalProperties": false,

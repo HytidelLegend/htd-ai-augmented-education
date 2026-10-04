@@ -191,9 +191,15 @@ def scan_path(
             }]
         return [file_record], []
 
+    return [file_record], scan_text(text, relative, policy, source_scope)
+
+
+def scan_text(text: str, relative: str, policy: dict[str, Any], source_scope: str,
+              first_line: int = 1) -> list[dict[str, Any]]:
+    """Scan only the supplied added block; exemptions affect individual matches."""
     findings: list[dict[str, Any]] = []
     newline_offsets = [index for index, character in enumerate(text) if character == "\n"]
-    lines = text.splitlines()
+    lines = text.split("\n")
 
     def line_number(offset: int) -> int:
         return bisect_right(newline_offsets, offset) + 1
@@ -204,6 +210,14 @@ def scan_path(
             synthetic = _is_synthetic(value, policy)
             line = line_number(match.start())
             line_text = lines[line - 1] if lines else ""
+            if any(
+                rule.get("path") == relative
+                and rule.get("category") == category
+                and rule.get("value_sha256") == content_digest(value)
+                and str(rule.get("context", "")) in line_text
+                for rule in policy.get("exact_match_exclusions", [])
+            ):
+                continue
             public_contact = category == "email" and _is_public_contact_email(
                 relative, line_text, policy,
             )
@@ -218,7 +232,7 @@ def scan_path(
                     else category
                 ),
                 "matched_category": category,
-                "evidence": f"第 {line} 行，内容指纹 {content_digest(value)[:12]}",
+                "evidence": f"第 {line + first_line - 1} 行，内容指纹 {content_digest(value)[:12]}",
                 "recommendation": (
                     "allow" if synthetic
                     else "allow_with_warning" if public_contact
@@ -240,18 +254,26 @@ def scan_path(
                 for match in re.finditer(re.escape(str(marker)), text):
                     line = line_number(match.start())
                     line_text = lines[line - 1] if lines else str(marker)
+                    if any(
+                        rule.get("category") == category
+                        and rule.get("marker") == marker
+                        and (not rule.get("path") or rule["path"] == relative)
+                        and any(text.startswith(phrase, match.start()) for phrase in rule.get("phrases", []))
+                        for rule in policy.get("semantic_match_exclusions", [])
+                    ):
+                        continue
                     findings.append({
                         "file": relative,
                         "source_scope": source_scope,
                         "risk_level": "medium",
                         "category": category,
-                        "evidence": f"第 {line} 行包含语义标记“{marker}”，行指纹 {content_digest(line_text)[:12]}",
+                        "evidence": f"第 {line + first_line - 1} 行包含语义标记“{marker}”，行指纹 {content_digest(line_text)[:12]}",
                         "recommendation": "confirm",
                         "confidence": "medium",
                         "fingerprint": content_digest(line_text),
                         "synthetic_fixture": False,
                     })
-    return [file_record], findings
+    return findings
 
 
 def scan_files(
@@ -268,6 +290,51 @@ def scan_files(
         file_records, file_findings = scan_path(path, root, policy, source_scope)
         records.extend(file_records)
         findings.extend(file_findings)
+    return records, findings
+
+
+def scan_changes(changes: list[dict], policy: dict[str, Any]) -> tuple[list[dict], list[dict]]:
+    """Scan Git additions, including extensionless UTF-8 text and new files."""
+    from git_repository import added_line_blocks
+
+    records, findings = [], []
+    for change in changes:
+        path, raw = change["path"], change["content"]
+        reason = None
+        blocks = []
+        patch_lines = change["patch"].split(b"\n")
+        has_hunks = any(re.match(rb"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@", line) for line in patch_lines)
+        binary_patch = any(line.startswith((b"Binary files ", b"GIT binary patch")) for line in patch_lines)
+        if not change["exists"]:
+            reason = "deleted"
+        elif not change["untracked"] and not change.get("special") and not has_hunks and not binary_patch:
+            # Pure rename / mode changes introduce no content to inspect.
+            pass
+        elif change.get("special"):
+            reason = change["special"]
+        elif binary_patch:
+            reason = "binary_content"
+        elif Path(path).suffix.casefold() in set(policy.get("binary_or_office_extensions", [])):
+            reason = "binary_or_office"
+        elif b"\0" in raw:
+            reason = "binary_content"
+        else:
+            try:
+                blocks = added_line_blocks(change)
+            except UnicodeDecodeError:
+                reason = "non_utf8"
+            if reason is None and sum(len(text.encode("utf-8")) for _, text in blocks) > int(policy.get("max_text_bytes", 5242880)):
+                reason = "oversized_text"
+        records.append({"path": path, "source_scope": "commit", "size": len(raw),
+                        "scan_status": "skipped" if reason else "scanned", "skip_reason": reason})
+        if reason and reason != "deleted":
+            blocks = []
+            findings.append({"file": path, "source_scope": "commit", "risk_level": "medium",
+                             "category": "binary_or_office_confirmation" if reason == "binary_or_office" else "content_not_inspected",
+                             "evidence": f"新增或修改内容未检查：{reason}", "recommendation": "confirm",
+                             "confidence": "high", "fingerprint": None, "synthetic_fixture": False})
+        for first_line, text in blocks:
+            findings.extend(scan_text(text, path, policy, "commit", first_line))
     return records, findings
 
 

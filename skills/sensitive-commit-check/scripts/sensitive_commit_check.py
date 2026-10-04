@@ -17,16 +17,12 @@ if str(UTILS) not in sys.path:
     sys.path.insert(0, str(UTILS))
 
 from sensitive_content_scanner import (  # noqa: E402
-    build_history_index,
-    cross_scope_matches,
-    discover_history_files,
-    discover_skill_regression_files,
     load_policy,
-    scan_files,
-    scan_path,
+    scan_changes,
 )
+from git_repository import change_snapshot  # noqa: E402
 from timestamp import iso_timestamp, unique_filename_timestamp  # noqa: E402
-from run_artifact_io import archive_json_input  # noqa: E402
+from run_artifact_io import archive_json_input, write_text_atomic  # noqa: E402
 
 try:
     from jsonschema import ValidationError, validate
@@ -41,9 +37,11 @@ ACTIVE_COMMAND: str | None = None
 TRANSITIONS = {
     "created": {"status_captured"},
     "status_captured": {"commit_candidates_resolved"},
-    "commit_candidates_resolved": {"supplemental_scope_resolved"},
+    "commit_candidates_resolved": {"diff_captured"},
+    "diff_captured": {"deterministic_scan_completed"},
+    "deterministic_scan_completed": {"semantic_review_required", "verification_completed"},
+    # Legacy runs retain their frozen results and original transitions.
     "supplemental_scope_resolved": {"deterministic_scan_completed"},
-    "deterministic_scan_completed": {"historical_fingerprint_indexed"},
     "historical_fingerprint_indexed": {"cross_scope_matches_completed"},
     "cross_scope_matches_completed": {"semantic_review_required"},
     "semantic_review_required": {"archiving_agent_review"},
@@ -53,7 +51,35 @@ TRANSITIONS = {
     "needs_user_decision": {"archiving_user_decision"},
     "archiving_user_decision": {"decision_applied"},
     "decision_applied": {"verification_completed"},
+    "failed": {"created", "status_captured", "commit_candidates_resolved", "diff_captured", "deterministic_scan_completed",
+               "semantic_review_required", "archiving_agent_review", "semantic_review_completed",
+               "archiving_user_decision", "decision_applied", "verification_completed"},
 }
+SCAN_STATES = {"created", "status_captured", "commit_candidates_resolved", "diff_captured", "deterministic_scan_completed"}
+
+
+def snapshot_fingerprint(scope: str) -> tuple[list[dict], str]:
+    changes, digest = change_snapshot(ROOT, scope)
+    binding = hashlib.sha256(digest.encode())
+    for relative in ("utils/references/sensitive-scan-policy.yaml", "utils/scripts/sensitive_content_scanner.py",
+                     "utils/scripts/git_repository.py", "skills/sensitive-commit-check/scripts/sensitive_commit_check.py",
+                     "skills/sensitive-commit-check/references/review.schema.json"):
+        content = (ROOT / relative).read_bytes()
+        binding.update(len(content).to_bytes(8, "big"))
+        binding.update(content)
+    return changes, binding.hexdigest()
+
+
+def require_current_diff(state: dict[str, Any]) -> list[dict] | None:
+    if state.get("diff_fingerprint"):
+        changes, current = snapshot_fingerprint(state["scope"])
+        if current != state["diff_fingerprint"]:
+            raise RuntimeError("Git 差异或扫描规则已变化，本次审查失效；请重新 start")
+        return changes
+    stage = state.get("resume_stage") if state.get("status") == "failed" else state.get("status")
+    if state.get("schema_version") == "2.1" and stage not in {"created", "status_captured", "commit_candidates_resolved"}:
+        raise RuntimeError("本次运行缺少差异指纹；请重新 start")
+    return None
 
 
 def run_git(args: list[str]) -> str:
@@ -67,15 +93,13 @@ def run_git(args: list[str]) -> str:
 
 
 def run_dir(run_id: str) -> Path:
+    if not run_id or Path(run_id).name != run_id or run_id in {".", ".."}:
+        raise ValueError("run-id 必须是运行目录名称")
     return RUNS / run_id
 
 
 def write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8", newline="\n",
-    )
+    write_text_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
 def save(state: dict[str, Any]) -> None:
@@ -163,9 +187,10 @@ def _paths_from_items(items: list[dict[str, Any]]) -> list[Path]:
     return [ROOT / item["path"] for item in items if item.get("exists")]
 
 
-def scan_file(item: dict[str, Any]) -> list[dict[str, Any]]:
-    """Backward-compatible single-file helper used by existing regression tests."""
-    _, findings = scan_path(ROOT / item["path"], ROOT, load_policy(), "commit")
+def scan_file(item: dict[str, Any], scope: str = "worktree") -> list[dict[str, Any]]:
+    """Compatibility helper, restricted to this file's current Git additions."""
+    changes, _ = change_snapshot(ROOT, scope)
+    _, findings = scan_changes([change for change in changes if change["path"] == item["path"]], load_policy())
     return findings
 
 
@@ -289,7 +314,19 @@ def write_review_template(state: dict[str, Any]) -> None:
     })
 
 
-def write_report(state: dict[str, Any]) -> None:
+def ensure_review_artifacts(state: dict[str, Any]) -> None:
+    """Recover generated inputs without overwriting a user's edited template."""
+    folder = run_dir(state["run_id"])
+    if not (folder / "review_packet.json").is_file():
+        write_json(folder / "review_packet.json", {
+            "run_id": state["run_id"], "files": state["scan_manifest"], "deterministic_findings": state["findings"],
+            "history_summary": {"files_scanned": 0, "fingerprints": 0, "findings": 0,
+                                "findings_by_category": {}, "uninspected": 0}})
+    if not (folder / "review-template.json").is_file():
+        write_review_template(state)
+
+
+def render_report(state: dict[str, Any]) -> str:
     findings = state.get("findings", [])
     scope_counts: dict[str, int] = {}
     for finding in findings:
@@ -338,89 +375,77 @@ def write_report(state: dict[str, Any]) -> None:
         for category, details in sorted(history_summary.items()):
             lines.append(f"- `{category}`：{details['count']} 个文件，示例路径：`{details['sample_path']}`")
     else:
-        lines.append("- 未发现历史运行敏感命中。")
-    (run_dir(state["run_id"]) / "report.md").write_text(
-        "\n".join(lines) + "\n", encoding="utf-8", newline="\n"
-    )
+        lines.append("- 本次未扫描历史运行内容。" if state.get("diff_fingerprint") else "- 未发现历史运行敏感命中。")
+    return "\n".join(lines) + "\n"
 
 
-def start(scope: str, supplemental_scope: str) -> dict[str, Any]:
+def write_report(state: dict[str, Any]) -> None:
+    write_text_atomic(run_dir(state["run_id"]) / "report.md", render_report(state))
+
+
+def start(scope: str, supplemental_scope: str = "none") -> dict[str, Any]:
     global ACTIVE_STATE
+    if supplemental_scope != "none":
+        raise ValueError("补充扫描已停用；本 Skill 只检查 Git 差异")
     existing = [path.name.removeprefix("SCC-") for path in RUNS.iterdir()] if RUNS.is_dir() else []
     run_id = "SCC-" + unique_filename_timestamp(existing)
     policy = load_policy()
-    raw_status = run_git(["status", "--short", "-z"])
     state: dict[str, Any] = {
-        "schema_version": "2.0", "workflow": "sensitive-commit-check", "run_id": run_id,
+        "schema_version": "2.1", "workflow": "sensitive-commit-check", "run_id": run_id,
         "status": "created", "current_stage": "created", "resume_stage": None,
         "current_object_id": None, "current_batch_id": run_id, "completed_steps": [],
         "pending_decisions": [], "error": None, "created_at": iso_timestamp(),
-        "updated_at": iso_timestamp(), "last_heartbeat_at": iso_timestamp(),
-        "event_sequence": 0, "scope": scope, "supplemental_scope": supplemental_scope,
-        "policy_version": str(policy.get("schema_version", "unknown")), "git_status": raw_status,
+        "updated_at": iso_timestamp(), "event_sequence": 0, "scope": scope,
+        "supplemental_scope": "none", "policy_version": str(policy.get("schema_version", "unknown")),
         "commit_files": [], "skill_files": [], "history_files": [], "findings": [],
     }
     save(state)
     ACTIVE_STATE = state
-    advance(state, "status_captured")
-    commit_items = resolve_commit_files(scope, raw_status)
-    advance(state, "commit_candidates_resolved", commit_files=commit_items)
+    advance(state, "status_captured", git_status=run_git(["status", "--short", "-z", "--untracked-files=all"]))
+    return continue_scan(state)
 
-    include_skills = supplemental_scope in {"skills_regression", "all"}
-    include_history = supplemental_scope in {"historical_runs", "all"}
-    skill_paths = discover_skill_regression_files(ROOT, policy) if include_skills else []
-    history_paths = discover_history_files(ROOT, policy) if include_history else []
-    advance(state, "supplemental_scope_resolved",
-            skill_files=[path.relative_to(ROOT).as_posix() for path in skill_paths],
-            history_files=[path.relative_to(ROOT).as_posix() for path in history_paths])
 
-    commit_records, commit_findings = scan_files(_paths_from_items(commit_items), ROOT, policy, "commit")
-    skill_records, skill_findings = scan_files(skill_paths, ROOT, policy, "skills_regression")
-    advance(state, "deterministic_scan_completed", scan_manifest=commit_records + skill_records,
-            commit_findings=commit_findings, skill_findings=skill_findings)
-
-    history_records, history_findings = scan_files(history_paths, ROOT, policy, "historical_runs")
-    history_index = build_history_index(history_findings)
-    write_json(run_dir(run_id) / "history-fingerprints.json", history_index)
-    history_summary = summarize_history_findings(history_findings)
-    advance(state, "historical_fingerprint_indexed", history_scan_manifest=history_records,
-            history_fingerprint_count=len(history_index),
-            history_finding_count=len(history_findings),
-            history_findings_summary=history_summary,
-            history_uninspected_count=sum(
-                1 for finding in history_findings
-                if finding["category"] in {"content_not_inspected", "binary_or_office_confirmation"}
-            ))
-
-    cross_findings = cross_scope_matches(commit_findings + skill_findings, history_index)
-    deterministic_findings = _normalize_findings(commit_findings + skill_findings + cross_findings)
-    advance(state, "cross_scope_matches_completed", cross_scope_findings=cross_findings,
-            findings=deterministic_findings)
-    write_json(run_dir(run_id) / "review_packet.json", {
-        "run_id": run_id, "files": commit_records + skill_records,
-        "deterministic_findings": deterministic_findings,
-        "history_summary": {"files_scanned": len(history_records), "fingerprints": len(history_index),
-                            "findings": len(history_findings),
-                            "findings_by_category": history_summary,
-                            "uninspected": state["history_uninspected_count"]},
-    })
-    advance(state, "semantic_review_required")
-    write_review_template(state)
+def continue_scan(state: dict[str, Any]) -> dict[str, Any]:
+    run_id, scope = state["run_id"], state["scope"]
+    if state["status"] == "created":
+        advance(state, "status_captured", git_status=run_git(["status", "--short", "-z", "--untracked-files=all"]))
+    require_current_diff(state)
+    changes, fingerprint = snapshot_fingerprint(scope)
+    policy = load_policy(ROOT / "utils/references/sensitive-scan-policy.yaml")
+    if state["status"] == "status_captured":
+        advance(state, "commit_candidates_resolved", commit_files=[{"path": item["path"], "exists": item["exists"]} for item in changes])
+    if state["status"] == "commit_candidates_resolved":
+        advance(state, "diff_captured", diff_fingerprint=fingerprint)
+    if state["status"] == "diff_captured":
+        records, findings = scan_changes(changes, policy)
+        advance(state, "deterministic_scan_completed", scan_manifest=records, findings=_normalize_findings(findings))
+    records, findings = state["scan_manifest"], state["findings"]
+    require_current_diff(state)
+    # Regex credentials and exact exclusions need no Agent judgment. Only medium
+    # findings go into semantic review (including uninspectable new content).
+    if _terminal_target(findings) != "blocked" and any(item["risk_level"] == "medium" for item in findings):
+        write_json(run_dir(run_id) / "review_packet.json", {
+            "run_id": run_id, "files": records, "deterministic_findings": findings,
+            "history_summary": {"files_scanned": 0, "fingerprints": 0, "findings": 0,
+                                "findings_by_category": {}, "uninspected": 0},
+        })
+        advance(state, "semantic_review_required")
+        write_review_template(state)
+        result = {"run_id": run_id, "status": state["status"],
+                  "review_packet": str(run_dir(run_id) / "review_packet.json"),
+                  "review_template": str(run_dir(run_id) / "review-template.json")}
+    else:
+        advance(state, "verification_completed", verification={"review_paths_valid": True,
+                "expected_reviewed_file_count": 0, "actual_reviewed_file_count": 0})
+        advance(state, _terminal_target(findings))
+        result = {"run_id": run_id, "status": state["status"],
+                  "report": str(run_dir(run_id) / "report.md")}
     write_report(state)
-    result = {"run_id": run_id, "status": state["status"],
-              "review_packet": str(run_dir(run_id) / "review_packet.json"),
-              "review_template": str(run_dir(run_id) / "review-template.json")}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result
 
 
-def review(run_id: str, input_path: Path) -> dict[str, Any]:
-    global ACTIVE_STATE
-    state = load(run_id)
-    ACTIVE_STATE = state
-    if state["status"] != "semantic_review_required":
-        raise RuntimeError(f"当前状态不接受 review：{state['status']}")
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
+def validate_review_payload(state: dict[str, Any], payload: Any) -> tuple[set, set]:
     schema_path = ROOT / "skills" / "sensitive-commit-check" / "references" / "review.schema.json"
     if validate is not None:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
@@ -449,33 +474,87 @@ def review(run_id: str, input_path: Path) -> dict[str, Any]:
             "reviewed_files 必须完整且仅包含扫描清单文件；"
             f"缺少 {len(missing_paths)} 个，多出 {len(unexpected_paths)} 个"
         )
-    archive_json_input(input_path, run_dir(run_id) / "agent-review.json", payload)
-    advance(state, "archiving_agent_review", archived_review=str(run_dir(run_id) / "agent-review.json"))
-    findings = _merge_review_findings(state.get("findings", []), payload["findings"])
-    advance(state, "semantic_review_completed", findings=findings,
-            reviewed_files=payload["reviewed_files"], agent_decisions=payload["decisions"])
-    advance(state, "verification_completed", verification={
-        "review_paths_valid": True,
-        "expected_reviewed_file_count": len(expected_paths),
-        "actual_reviewed_file_count": len(reviewed_paths),
-    })
-    target = _terminal_target(findings)
-    pending = _pending_findings(findings) if target == "needs_user_decision" else []
-    advance(state, target, pending_decisions=pending)
+    if payload.get("run_id", state["run_id"]) != state["run_id"]:
+        raise RuntimeError("review JSON 不属于本次运行")
+    by_id = {item["finding_id"]: item for item in _normalize_findings(state.get("findings", []))}
+    for finding in payload["findings"]:
+        if finding["file"] not in expected_paths:
+            raise RuntimeError("finding 超出本次差异清单")
+        if finding["risk_level"] not in {"low", "medium", "high"}:
+            raise RuntimeError("finding 的 risk_level 无效")
+        if finding["confidence"] not in {"low", "medium", "high"}:
+            raise RuntimeError("finding 的 confidence 无效")
+        if finding["recommendation"] not in {"allow", "allow_with_warning", "confirm", "block", "replace_or_confirm"}:
+            raise RuntimeError("finding 的 recommendation 无效")
+        target_id = finding.get("finding_id")
+        if target_id and (target_id not in by_id or by_id[target_id]["file"] != finding["file"]):
+            raise RuntimeError("finding_id 未知或与文件不一致")
+        if state.get("diff_fingerprint") and not target_id:
+            raise RuntimeError("语义判断必须引用本次扫描的 finding_id")
+    return expected_paths, reviewed_paths
+
+
+def archived_payload(state: dict[str, Any], key: str) -> dict[str, Any]:
+    path = Path(state[key])
+    if path.resolve().parent != run_dir(state["run_id"]).resolve():
+        raise RuntimeError("审查归档不在本次运行目录")
+    content = path.read_bytes()
+    expected = state.get(key + "_sha256")
+    if expected and hashlib.sha256(content).hexdigest() != expected:
+        raise RuntimeError("审查归档已变化")
+    return json.loads(content.decode("utf-8-sig"))
+
+
+def finish_verification(state: dict[str, Any]) -> None:
+    require_current_diff(state)
+    if state["status"] == "semantic_review_completed":
+        payload = archived_payload(state, "archived_review")
+        expected, reviewed = validate_review_payload(state, payload)
+        advance(state, "verification_completed", verification={
+            "review_paths_valid": True, "expected_reviewed_file_count": len(expected),
+            "actual_reviewed_file_count": len(reviewed)})
+    elif state["status"] == "decision_applied":
+        verification = dict(state.get("verification", {}))
+        verification["user_decisions_valid"] = True
+        advance(state, "verification_completed", verification=verification)
+    if state["status"] == "verification_completed":
+        target = _terminal_target(state["findings"], state.get("user_decisions", []))
+        pending = _pending_findings(state["findings"], state.get("user_decisions", [])) if target == "needs_user_decision" else []
+        advance(state, target, pending_decisions=pending)
     write_report(state)
-    result = {"run_id": run_id, "status": target, "findings": findings,
-              "report": str(run_dir(run_id) / "report.md")}
+
+
+def finish_review(state: dict[str, Any]) -> dict[str, Any]:
+    if state["status"] == "archiving_agent_review":
+        payload = archived_payload(state, "archived_review")
+        validate_review_payload(state, payload)
+        findings = _merge_review_findings(state.get("findings", []), payload["findings"])
+        advance(state, "semantic_review_completed", findings=findings,
+                reviewed_files=payload["reviewed_files"], agent_decisions=payload["decisions"])
+    finish_verification(state)
+    result = {"run_id": state["run_id"], "status": state["status"], "findings": state["findings"],
+              "report": str(run_dir(state["run_id"]) / "report.md")}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result
 
 
-def submit_decision(run_id: str, input_path: Path) -> dict[str, Any]:
+def review(run_id: str, input_path: Path) -> dict[str, Any]:
     global ACTIVE_STATE
     state = load(run_id)
     ACTIVE_STATE = state
-    if state["status"] != "needs_user_decision":
-        raise RuntimeError(f"当前状态不接受用户决策：{state['status']}")
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
+    if state["status"] != "semantic_review_required":
+        raise RuntimeError(f"当前状态不接受 review：{state['status']}")
+    require_current_diff(state)
+    payload = json.loads(input_path.read_text(encoding="utf-8-sig"))
+    validate_review_payload(state, payload)
+    archived = run_dir(run_id) / "agent-review.json"
+    archive_json_input(input_path, archived, payload)
+    advance(state, "archiving_agent_review", archived_review=str(archived),
+            archived_review_sha256=hashlib.sha256(archived.read_bytes()).hexdigest())
+    return finish_review(state)
+
+
+def validate_user_decisions(state: dict[str, Any], payload: Any) -> list[dict]:
     decisions = payload.get("decisions") if isinstance(payload, dict) else None
     if (
         not isinstance(decisions, list)
@@ -507,7 +586,7 @@ def submit_decision(run_id: str, input_path: Path) -> dict[str, Any]:
         reason = str(decision.get("reason", "")).strip()
         if action not in {"allow", "block"} or not reason:
             raise RuntimeError("decision 必须为 allow 或 block，且 reason 不能为空")
-        finding = finding_by_id[finding_id]
+        finding = _effective_finding(finding_by_id[finding_id])
         if action == "allow" and (
             finding.get("risk_level") == "high"
             or finding.get("recommendation") in {"block", "replace_or_confirm"}
@@ -519,34 +598,45 @@ def submit_decision(run_id: str, input_path: Path) -> dict[str, Any]:
             "reason": reason,
         })
 
-    existing_archives = list(run_dir(run_id).glob("user-decision-*.json"))
-    archived_path = run_dir(run_id) / f"user-decision-{len(existing_archives) + 1:03d}.json"
-    archive_json_input(input_path, archived_path, payload)
-    advance(state, "archiving_user_decision", archived_user_decision=str(archived_path))
-    prior = {
-        item["finding_id"]: item
-        for item in state.get("user_decisions", [])
-        if item.get("finding_id")
-    }
-    for decision in normalized_decisions:
-        prior[decision["finding_id"]] = decision
-    user_decisions = list(prior.values())
-    advance(state, "decision_applied", findings=findings, user_decisions=user_decisions)
-    verification = dict(state.get("verification", {}))
-    verification["user_decisions_valid"] = True
-    advance(state, "verification_completed", verification=verification)
-    target = _terminal_target(findings, user_decisions)
-    pending = _pending_findings(findings, user_decisions) if target == "needs_user_decision" else []
-    advance(state, target, pending_decisions=pending)
-    write_report(state)
-    result = {
-        "run_id": run_id,
-        "status": target,
-        "pending_decisions": pending,
-        "report": str(run_dir(run_id) / "report.md"),
-    }
+    return normalized_decisions
+
+
+def finish_decision(state: dict[str, Any]) -> dict[str, Any]:
+    if state["status"] == "archiving_user_decision":
+        payload = archived_payload(state, "archived_user_decision")
+        normalized_decisions = validate_user_decisions(state, payload)
+        prior = {
+            item["finding_id"]: item
+            for item in state.get("user_decisions", [])
+            if item.get("finding_id")
+        }
+        for decision in normalized_decisions:
+            prior[decision["finding_id"]] = decision
+        user_decisions = list(prior.values())
+        advance(state, "decision_applied", user_decisions=user_decisions)
+    finish_verification(state)
+    result = {"run_id": state["run_id"], "status": state["status"],
+              "pending_decisions": state.get("pending_decisions", []),
+              "report": str(run_dir(state["run_id"]) / "report.md")}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result
+
+
+def submit_decision(run_id: str, input_path: Path) -> dict[str, Any]:
+    global ACTIVE_STATE
+    state = load(run_id)
+    ACTIVE_STATE = state
+    if state["status"] != "needs_user_decision":
+        raise RuntimeError(f"当前状态不接受用户决策：{state['status']}")
+    require_current_diff(state)
+    payload = json.loads(input_path.read_text(encoding="utf-8-sig"))
+    validate_user_decisions(state, payload)
+    existing_archives = list(run_dir(run_id).glob("user-decision-*.json"))
+    archived = run_dir(run_id) / f"user-decision-{len(existing_archives) + 1:03d}.json"
+    archive_json_input(input_path, archived, payload)
+    advance(state, "archiving_user_decision", archived_user_decision=str(archived),
+            archived_user_decision_sha256=hashlib.sha256(archived.read_bytes()).hexdigest())
+    return finish_decision(state)
 
 
 def verify(run_id: str) -> tuple[dict[str, Any], int]:
@@ -554,6 +644,27 @@ def verify(run_id: str) -> tuple[dict[str, Any], int]:
     state = load(run_id)
     ACTIVE_STATE = state
     valid = state["status"] in TERMINAL_STATES and state.get("verification", {}).get("review_paths_valid") is True
+    if state.get("schema_version") == "2.1" and not state.get("diff_fingerprint"):
+        valid = False
+    if state.get("diff_fingerprint"):
+        try:
+            changes = require_current_diff(state)
+            current_records, current_findings = scan_changes(changes, load_policy(ROOT / "utils/references/sensitive-scan-policy.yaml"))
+            valid = valid and state.get("scan_manifest") == current_records
+            valid = valid and state.get("commit_files") == [{"path": item["path"], "exists": item["exists"]} for item in changes]
+            expected_findings = _normalize_findings(current_findings)
+            valid = valid and state["status"] == _terminal_target(state["findings"], state.get("user_decisions", []))
+            valid = valid and (run_dir(run_id) / "report.md").read_bytes() == render_report(state).encode("utf-8")
+            if state.get("archived_review"):
+                payload = archived_payload(state, "archived_review")
+                validate_review_payload(state, payload)
+                valid = valid and state.get("reviewed_files") == payload["reviewed_files"]
+                expected_findings = _merge_review_findings(expected_findings, payload["findings"])
+            valid = valid and state["findings"] == expected_findings
+            if state.get("archived_user_decision"):
+                validate_user_decisions(state, archived_payload(state, "archived_user_decision"))
+        except (RuntimeError, OSError, ValueError, KeyError, TypeError):
+            valid = False
     result = {"run_id": run_id, "status": state["status"], "valid": valid,
               "can_proceed": state["status"] == "approved" and valid}
     print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -568,6 +679,21 @@ def resume(run_id: str) -> dict[str, Any]:
     global ACTIVE_STATE
     state = load(run_id)
     ACTIVE_STATE = state
+    require_current_diff(state)
+    if state["status"] == "failed" and state.get("resume_stage") in TRANSITIONS["failed"]:
+        advance(state, state["resume_stage"], error=None, resume_stage=None)
+    if state["status"] in SCAN_STATES:
+        return continue_scan(state)
+    if state["status"] in {"archiving_agent_review", "semantic_review_completed"}:
+        return finish_review(state)
+    if state["status"] in {"archiving_user_decision", "decision_applied"}:
+        return finish_decision(state)
+    if state["status"] == "verification_completed":
+        finish_verification(state)
+    if state["status"] == "semantic_review_required" and state.get("diff_fingerprint"):
+        ensure_review_artifacts(state)
+    if state["status"] == "failed":
+        raise RuntimeError("该检查点不能安全恢复；请重新 start")
     actions = {
         "semantic_review_required": "读取 review_packet.json，填写 review-template.json 后执行 review",
         "semantic_review_completed": "执行 verification 和终态判定",
@@ -582,14 +708,15 @@ def resume(run_id: str) -> dict[str, Any]:
 
 
 def main() -> int:
-    global ACTIVE_COMMAND
+    global ACTIVE_COMMAND, ACTIVE_STATE
+    ACTIVE_STATE = None
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     start_parser = sub.add_parser("start")
     start_parser.add_argument("--scope", choices=["worktree", "staged"], default="worktree")
     start_parser.add_argument("--supplemental",
                               choices=["none", "skills_regression", "historical_runs", "all"],
-                              default="all")
+                              default="none")
     audit_skills_parser = sub.add_parser("audit-skills")
     audit_skills_parser.add_argument("--scope", choices=["worktree", "staged"], default="staged")
     audit_history_parser = sub.add_parser("audit-history")
@@ -612,9 +739,9 @@ def main() -> int:
         if args.command == "start":
             start(args.scope, args.supplemental)
         elif args.command == "audit-skills":
-            start(args.scope, "skills_regression")
+            raise ValueError("audit-skills 已停用；请使用 start 检查 Git 差异")
         elif args.command == "audit-history":
-            start(args.scope, "historical_runs")
+            raise ValueError("audit-history 已停用；请使用 start 检查 Git 差异")
         elif args.command == "status":
             print(json.dumps(load(args.run_id), ensure_ascii=False, indent=2))
         elif args.command == "review":
@@ -628,10 +755,14 @@ def main() -> int:
             resume(args.run_id)
         return 0
     except (RuntimeError, OSError, ValueError, json.JSONDecodeError) as exc:
-        if ACTIVE_COMMAND == "start" and ACTIVE_STATE is not None and ACTIVE_STATE.get("status") not in TERMINAL_STATES | {"failed"}:
+        if ACTIVE_STATE is not None and ACTIVE_STATE.get("status") not in TERMINAL_STATES | {"failed"} and (
+            ACTIVE_COMMAND in {"start", "resume"}
+            or (ACTIVE_COMMAND in {"review", "submit-decision"} and ACTIVE_STATE["status"] in {
+                "archiving_agent_review", "semantic_review_completed", "archiving_user_decision", "decision_applied", "verification_completed"})
+        ):
             mark_failed(ACTIVE_STATE, exc)
         print(json.dumps({"error": str(exc)}, ensure_ascii=False))
-        return 1
+        return 2 if isinstance(exc, ValueError) else 5
 
 
 if __name__ == "__main__":

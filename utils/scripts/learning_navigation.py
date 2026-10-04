@@ -104,6 +104,7 @@ def prepare_navigation_units(
         if item.get("source") is None or (
             item["source"].get("source_id") in inventory_by_id
             and item["source"].get("source_id") not in changed_source_ids
+            and not inventory_by_id[item['source']['source_id']].get('material_points')
         )
     ]
     for unit in retained_units:
@@ -144,9 +145,16 @@ def prepare_navigation_units(
                 "heading_text": heading["title"], "heading_level": heading["level"], "heading_occurrence": heading["occurrence"],
                 "parent_heading_chain": heading["parent_heading_chain"], "start_line_hint": heading["start_line"],
                 "end_before_heading": heading["end_before_heading"], "end_line_hint": heading["end_line"], "locator_status": "valid",
+                **({'content_span': heading['content_span']} if heading.get('content_span') else {}),
             },
         })
 
+    for source in inventory:
+        for point in source.get('material_points', []):
+            uid = aliases.get(point['candidate_id'])
+            unit = next((u for u in retained_units if u['unit_id'] == uid), None)
+            if unit is None: raise LearningNavigationError('原文要点缺少知识点：' + point['summary'])
+            unit.update(track=point['track'], point_ids=[point['point_id']])
     by_id = {item["unit_id"]: item for item in retained_units}
     for update in decisions["existing_unit_updates"]:
         unit = by_id.get(update["unit_id"])
@@ -273,6 +281,9 @@ def build_navigation(
         "sources": sources, "source_relationships": decisions["source_relationships"], "stages": stages,
         "units": ordered, "concept_index": concept_index, "coverage_gaps": decisions["coverage_gaps"],
         "deferred_items": decisions["deferred_items"],
+        **({'material_points': [{**p, 'unit_ids': [stable_id('UNIT', p['candidate_id'])]}
+                                for s in inventory for p in s.get('material_points', [])]}
+           if any(s.get('material_points') for s in inventory) else {}),
     }
 
 
@@ -280,6 +291,22 @@ def validate_navigation(navigation: dict[str, Any], *, schema_path: Path, root: 
     validate_json_schema(navigation, schema_path)
     _topological_order([dict(item) for item in navigation["units"]])
     source_map = {item["source_id"]: item for item in navigation["sources"]}
+    valid_units = {u['unit_id'] for u in navigation['units']}
+    units_by_id = {u['unit_id']: u for u in navigation['units']}
+    point_ids = set()
+    for point in navigation.get('material_points', []):
+        if point['point_id'] in point_ids or not set(point['unit_ids']) <= valid_units or point['source_id'] not in source_map:
+            raise LearningNavigationError('原文要点覆盖引用无效或重复')
+        point_ids.add(point['point_id'])
+        for uid in point['unit_ids']:
+            unit = units_by_id[uid]
+            if point['point_id'] not in unit.get('point_ids', []) or not unit['source'] or unit['source']['source_id'] != point['source_id'] or unit.get('track') != point['track']:
+                raise LearningNavigationError('原文要点与知识点的来源、引用或主支线不一致')
+    for unit in navigation['units']:
+        if not set(unit.get('point_ids', [])) <= point_ids:
+            raise LearningNavigationError('知识点引用未知原文要点')
+        if navigation.get('material_points') and unit.get('track') == 'main' and any(units_by_id[x].get('track') == 'branch' for x in unit['prerequisites']):
+            raise LearningNavigationError('主线不能依赖暂缓执行的支线，请分离基础讲解与具体执行')
     errors: list[str] = []
     if len(source_map) != len(navigation["sources"]):
         errors.append("来源 ID 重复")
@@ -296,6 +323,17 @@ def validate_navigation(navigation: dict[str, Any], *, schema_path: Path, root: 
             structures[source_id] = structure
             if structure["sha256"] != source["sha256"]:
                 errors.append(f"来源哈希已变化：{source['path']}")
+            from .learning_content import fragments
+            body = {f['fragment_id']: f for f in fragments(path, source_id, source['sha256'])}
+            for point in navigation.get('material_points', []):
+                if point['source_id'] != source_id: continue
+                ids = point['fragment_ids']
+                if not ids or len(set(ids)) != len(ids) or not set(ids) <= set(body):
+                    errors.append('原文要点引用无效正文片段：' + point['point_id'])
+                    continue
+                start = min(body[x]['start_line'] for x in ids); end = max(body[x]['end_line'] for x in ids)
+                if any(units_by_id[uid]['source'].get('content_span') != {'start_line': start, 'end_line': end} for uid in point['unit_ids']):
+                    errors.append('原文要点范围与正文片段不一致：' + point['point_id'])
     introduced: dict[str, str] = {}
     unit_positions = {item["unit_id"]: item["sequence"] for item in navigation["units"]}
     for unit in navigation["units"]:
@@ -328,6 +366,11 @@ def validate_navigation(navigation: dict[str, Any], *, schema_path: Path, root: 
             matches = [heading for heading in structure["headings"] if heading["title"] == locator["heading_text"] and heading["occurrence"] == locator["heading_occurrence"] and heading["parent_heading_chain"] == locator["parent_heading_chain"]]
             if len(matches) != 1:
                 errors.append(f"定位不能唯一解析：{unit['unit_id']}")
+            span = locator.get('content_span')
+            if span:
+                path = material_paths[source['path']] if material_paths is not None else root / source['path']
+                if not 1 <= span['start_line'] <= span['end_line'] <= len(path.read_text(encoding='utf-8-sig').splitlines()):
+                    errors.append('正文片段范围无效：' + unit['unit_id'])
             images = {item["figure_id"]: item for item in structure["images"]}
             for visual in unit["visual_references"]:
                 if visual['source_id'] != source['source_id'] or visual['source_path'] != source['path']:

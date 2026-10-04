@@ -1,4 +1,4 @@
-"""Discover and validate a beta-build-curriculum-navigation artifact bundle."""
+"""Discover and validate a build-curriculum-navigation artifact bundle."""
 
 from __future__ import annotations
 
@@ -61,6 +61,20 @@ def load_navigation_bundle(root: Path, navigation_json: Path, material_project: 
     fragment_schema = CODE_ROOT / "utils/references/learning-navigation-source-fragment-v2.schema.json"
     fragments: list[dict[str, Any]] = []
     sources = {item["source_id"]: item for item in navigation["sources"]}
+    from .learning_content import fragments as body_fragments, validate_division
+    for sid, source in sources.items():
+        recorded = [p for p in navigation.get('material_points', []) if p['source_id'] == sid]
+        division_path = source_dir / sid / 'point-division.json'
+        if not recorded:
+            if division_path.is_file(): raise NavigationBundleError('正文划分记录存在，但正式导航遗漏全部要点：' + sid)
+            continue
+        if not division_path.is_file(): raise NavigationBundleError('正文要点缺少完整划分记录：' + sid)
+        source_path = paths[source['path']] if paths is not None else root / source['path']
+        expected = validate_division(source, {'fragments': body_fragments(source_path, sid, source['sha256'])}, read_json(division_path))
+        fields = ('point_id', 'source_id', 'fragment_ids', 'summary', 'track', 'reason')
+        actual = [{k: p[k] for k in fields} for p in recorded]
+        required = [{k: p[k] for k in fields} for p in expected]
+        if actual != required: raise NavigationBundleError('正式导航要点与完整正文划分记录不一致：' + sid)
     units = {item["unit_id"]: item for item in navigation["units"]}
     units_by_source: dict[str, set[str]] = {source_id: set() for source_id in sources}
     for unit in navigation["units"]:

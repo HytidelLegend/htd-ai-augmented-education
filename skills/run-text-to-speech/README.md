@@ -13,6 +13,8 @@ runtime/.venv/Scripts/python.exe skills/run-text-to-speech/scripts/verify_packag
 
 本次后端通过 `start --backend volcengine --speaker 哆啦A梦` 指定；不改写配置文件，恢复沿用快照。实际总时长严格低于试听目标时直接生成最终音频；等于或超过目标时需要试听确认，重试也按当前音频时长判断。
 
+两个后端共用结构助词“地”的语境改写：只改实际合成请求，批准稿与公开时间戳保留原文。脚本自动处理明确情况，不确定项由 `apply-context-decisions --input` 提交少量判断；对话和播客经 `resume --input` 转交。停顿重定时沿用基准判断。文档决策模板由 `scripts/render_voice_docs.py --context-only` 生成，`--check` 校验。
+
 回归测试：
 
 ```text

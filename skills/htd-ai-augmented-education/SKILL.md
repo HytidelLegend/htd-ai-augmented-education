@@ -18,7 +18,7 @@ description: 回答 htd-ai-augmented-education 项目信息，并将用户任务
 - 需求与验收：本地 `docs/PRDs/`（如存在）；缺失时依据公开 Skill 契约，并向用户澄清仍不明确的需求
 - `docs/PRDs/` 和 `docs/decisions/` 仅为本地文档，不同步到远端仓库，新克隆仓库不包含它们
 - 架构：`docs/architecture/`
-- Skill 总览与 CLI：`docs/Skills_说明书.md`
+- Skill 总览与 CLI：`docs/Skills、应用说明书.md`
 - 贡献、安全和变更：`docs/contributing/`、`docs/security/`、`docs/更新历史.md`
 - 已注册 Skill 清单：`.claude-plugin/plugin.json`
 - Skill 公开契约：插件清单中对应的 `skills/<skill-name>/SKILL.md`
@@ -62,3 +62,18 @@ runtime/.venv/Scripts/python.exe skills/htd-ai-augmented-education/scripts/cli.p
 正式产物位于 `outputs/htd-ai-augmented-education/runs/<run-id>/result.json` 和 `result.md`；状态、事件、请求、来源清单及草稿位于 `logs/htd-ai-augmented-education/runs/<run-id>/`。
 
 默认调用 `deliver`，将其 stdout 作为 Markdown 正文直接返回对话，不放入代码块，不自行重排栏目。只有 `completed` 且 `verify` 通过时才能交付。
+
+## 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: route-project-task
+    user_request: "我想知道应该调用哪些 Skill 来完成一个项目任务"
+    when_to_call: "用户询问项目能力、Skill 选择或调用顺序时"
+    invocation: "start → resume → deliver"
+    expected_output: "根据权威项目文档生成可执行的 Skill 路由和调用提示"
+```
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

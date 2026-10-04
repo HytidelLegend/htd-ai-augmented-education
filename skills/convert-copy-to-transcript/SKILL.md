@@ -26,7 +26,7 @@ scenario_examples:
 - 所有时间字段及 run ID 均调用 `utils/scripts/timestamp.py`；同秒冲突追加数字后缀。
 - `start`、`status`、`resume`、`verify`、`deliver` 为统一入口；原有专用命令仍可调用。`deliver` 仅交付 completed 运行，并重新验证，不隐式批准草稿。
 - CLI 退出码遵循说明书：成功 0、输入无效 2、等待决策 3、验证失败 4、运行错误 5、依赖或配置缺失 6。`status` 查询成功返回 0。
-- 确认只能依据当前稿件或试听的精确 SHA-256；用户未明确确认时不能填写确认回执。普通恢复不得越过确认门禁。
+- 默认模式的确认只能依据当前稿件的精确 SHA-256；用户未明确确认时不能填写人工确认回执。普通恢复不得越过确认门禁。`qa-dialogue` 模式使用下述显式免审阅策略及绑定回执，不要求用户确认逐字稿。
 - 文件输入只读；同名目标冲突不覆盖。Mock 回归不读取密钥，不访问云端。
 
 ## 跨 Skill 契约
@@ -36,6 +36,14 @@ scenario_examples:
 TTS 保存上游引用快照，重新读取上游状态、执行上游 `verify` 并复核所有哈希。批准稿与确认回执必须一致；上游发生变化后拒绝继续合成。不共写上游运行目录，不自动选择最新 run。
 
 ## 输入与命令
+
+### 双人问答模式
+
+CLI 可选 `--mode qa-dialogue`，支持 `start/status/resume/verify/deliver`；与默认朗读适配使用独立 run。`start --mode qa-dialogue --input-file <正文>` 准备最多两个源块及问答模板，调用 Agent 分批提交 `resume --mode qa-dialogue --run-id <ID> --input <pairs.json>`；脚本校验依次覆盖全部源块，生成严格交替的提问人／回答人发言，再逐发言复用默认朗读适配。若出现语义读法候选，仅按当前 turn_id 填写已有候选。
+
+对话改编允许将正文重述为问答，保持原文语言、覆盖保留内容、不新增事实、不额外压缩；下文“不承担改稿”“不重写完整逐字稿”的限制适用于默认模式。全文组装由脚本完成，Agent 每次只填写少量问答。对话模式明确采用免逐字稿审阅策略，回执标记 `policy_skip_review` 并绑定调用运行和发言，不冒充人工确认；默认模式的确认流程不变。
+
+对话状态机与实现位于 `utils/scripts/dialogue_pipeline.py`；状态依次为 `prepared → awaiting_agent_generation → normalizing_turns → verifying_outputs → publishing → completed`，错误进入可恢复暂停状态。正式对话 TXT 与 `dialogue-handoff.json` 位于本 Skill 独立输出 run，源块、模板、响应及子运行引用保存到日志。对话 handoff 使用 `utils/references/dialogue-handoff-v2.schema.json`，逐发言仍复用原九字段 handoff。所有对话命令须带相同 `--mode qa-dialogue`；完整编排入口见 `skills/create-dialogue-podcast/SKILL.md`。
 
 输入接受 UTF-8 `.md`／`.txt` 文件或直接文本，二者只能选一个。只做可追溯的朗读适配，不承担改稿；Agent 不重写完整逐字稿。独立输出为 `outputs/convert-copy-to-transcript/runs/<run-id>/transcript/`，不再创建 `tmp/tts_*`。`--output-root` 只能指向本 skill 的 `outputs/.../runs`，精确 workspace 也必须位于该目录下。
 
@@ -87,3 +95,7 @@ runtime/.venv/Scripts/python.exe skills/convert-copy-to-transcript/scripts/cli.p
 | `revision_required` | `apply-decisions` |
 | `verified` | `verify` |
 <!-- state-commands:end -->
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

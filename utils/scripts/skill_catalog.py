@@ -83,27 +83,16 @@ def load_documented_scenarios(path: Path) -> dict[str, list[dict[str, Any]]]:
 
 def load_documented_categories(path: Path) -> dict[str, str]:
     """Read Skill categories from the overview tables in the catalog document."""
-    text = path.read_text(encoding="utf-8")
-    overview = re.split(r"(?m)^## 项目功能\s*$", text, maxsplit=1)[0]
-    current = None
-    result: dict[str, str] = {}
-    for line in overview.splitlines():
-        heading = re.match(r"^###\s+(.+?)\s*$", line)
-        if heading:
-            current = heading.group(1).strip()
-            continue
-        if not current or not line.startswith("|") or line.startswith("|---"):
-            continue
-        cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
-        if cells and cells[0] and cells[0] != "Skill" and len(cells) >= 4:
-            result[cells[0]] = current
-    return result
+    return {name: groups[-1] for name, groups in load_documented_category_occurrences(path).items()}
 
 
 def load_documented_category_occurrences(path: Path) -> dict[str, list[str]]:
     """Return all category headings in which each Skill appears."""
     text = path.read_text(encoding="utf-8")
-    overview = re.split(r"(?m)^## 项目功能\s*$", text, maxsplit=1)[0]
+    if '## Skills 分类与调用\n' in text:
+        overview = text.split('## Skills 分类与调用\n', 1)[1].split('## 应用分类与使用', 1)[0]
+    else:
+        overview = re.split(r"(?m)^## 项目功能\s*$", text, maxsplit=1)[0]
     current = None
     result: dict[str, list[str]] = {}
     for line in overview.splitlines():
@@ -114,8 +103,12 @@ def load_documented_category_occurrences(path: Path) -> dict[str, list[str]]:
         if not current or not line.startswith("|") or line.startswith("|---"):
             continue
         cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
-        if cells and cells[0] and cells[0] != "Skill" and len(cells) >= 4:
-            result.setdefault(cells[0], []).append(current)
+        if cells and cells[0] and cells[0] != "Skill" and len(cells) >= 4 and not re.fullmatch(r'[- :]+', cells[0]):
+            name = cells[0]
+            link = re.fullmatch(r'\[`?([^`\]]+)`?\]\([^)]*\)', name)
+            if link:
+                name = link.group(1)
+            result.setdefault(name, []).append(current)
     return result
 
 

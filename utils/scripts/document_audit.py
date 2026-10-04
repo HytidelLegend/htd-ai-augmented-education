@@ -3,8 +3,11 @@ from __future__ import annotations
 import ast, hashlib, json, os, re, subprocess, sys
 from pathlib import Path
 from typing import Any
-from skill_catalog import ALLOWED_CATEGORIES, load_documented_categories, load_documented_category_occurrences, load_documented_scenarios, load_skill_metadata, validate_scenario
+from skill_catalog import ALLOWED_CATEGORIES, load_documented_categories, load_documented_category_occurrences, load_documented_scenarios, load_skill_metadata, validate_scenario, parse_scenario_examples
 from application_contract import audit_applications
+from catalog_audit import overview_findings
+from version_history import history_findings
+from commit_history import git_text
 
 EXCLUDED = {'.git', 'logs', 'outputs', 'tmp', '__pycache__', 'node_modules', '.cache', '.pytest_cache'}
 
@@ -17,7 +20,7 @@ def rel(root: Path, path: Path) -> str:
 def discover_docs(root: Path) -> list[Path]:
     wanted = {"AGENTS.md", "CODE_OF_CONDUCT.md", "README.md", "SOURCE_OF_TRUTH.md"}
     found = set()
-    for p in root.rglob("*.md"):
+    for p in source_files(root, '.md'):
         parts = set(p.relative_to(root).parts)
         if parts & EXCLUDED or '.backup' in parts or '.venv' in parts:
             continue
@@ -25,6 +28,14 @@ def discover_docs(root: Path) -> list[Path]:
         if rp in wanted or rp.startswith("docs/") or p.name == "README.md":
             found.add(p)
     return sorted(found)
+
+def source_files(root: Path, suffix: str):
+    """Prune ignored trees before traversal, including the isolated environment."""
+    for directory, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in EXCLUDED | {'.backup', '.venv'}]
+        for name in files:
+            if name.endswith(suffix):
+                yield Path(directory) / name
 
 def active_skill_dirs(root: Path) -> set[str]:
     base = root / 'skills'
@@ -52,7 +63,7 @@ def imported_modules(root: Path) -> set[str]:
     mods = set()
     for base in (root/'skills', root/'utils', root/'runtime'):
         if not base.exists(): continue
-        for p in base.rglob('*.py'):
+        for p in source_files(base, '.py'):
             parts = set(p.relative_to(root).parts)
             if parts & EXCLUDED or '.backup' in parts or '.venv' in parts: continue
             try: tree = ast.parse(p.read_text(encoding='utf-8'))
@@ -156,6 +167,12 @@ def _check_reference(root, doc, raw, line, start, end, skill_context, app_contex
     first = parts[0]
     if first in {'outputs', 'logs', 'tmp'}:
         return
+    # These source directories are deliberately local and absent in a fresh clone.
+    # When a local directory exists, still check references to files beneath it.
+    for optional in ('docs/PRDs', 'docs/decisions'):
+        contained = (root / token).resolve().is_relative_to((root / optional).resolve())
+        if contained and (token.rstrip('/') == optional or (token.startswith(optional + '/') and not (root / optional).exists())):
+            return
     prefix, suffix = line[:start], line[end:]
     if re.search(r'(?:旧|历史|迁移输入|不再维护)\s*$', prefix) and re.search(
         r'迁移|清理|删除|不再|归档', re.split(r'[。；;]', suffix, 1)[0]
@@ -193,22 +210,28 @@ def _check_reference(root, doc, raw, line, start, end, skill_context, app_contex
             '更新失效的项目路径引用', token, '现有路径', [rel(root, doc)])
 
 
-def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def audit(root: Path, previous: dict[str, Any] | None = None, on_stage=None, scope='worktree') -> tuple[dict[str, Any], dict[str, Any]]:
+    stage = on_stage or (lambda name: None)
+    stage('discovering')
     findings=[]; facts={}
     docs=discover_docs(root); facts['documents']={rel(root,p):sha(p) for p in docs}
+    stage('checking_documents')
     findings.extend(document_reference_findings(root, docs))
-    version=(root/'VERSION').read_text(encoding='utf-8').strip() if (root/'VERSION').is_file() else None
+    stage('checking_structure')
+    version=(git_text(root, '', 'VERSION') or '').strip() if scope=='staged' else ((root/'VERSION').read_text(encoding='utf-8').strip() if (root/'VERSION').is_file() else None)
     marketplace=root/'.claude-plugin/marketplace.json'; plugin=root/'.claude-plugin/plugin.json'
-    try: market=json.loads(marketplace.read_text(encoding='utf-8'))
+    try: market=json.loads(git_text(root, '', '.claude-plugin/marketplace.json') or '{}') if scope=='staged' else json.loads(marketplace.read_text(encoding='utf-8'))
     except Exception: market={}
     try: manifest=json.loads(plugin.read_text(encoding='utf-8'))
     except Exception: manifest={}
-    market_version=((market.get('plugins') or [{}])[0]).get('version')
+    market_plugins = [p for p in market.get('plugins', []) if isinstance(p, dict) and p.get('name') == 'htd-ai-augmented-education'] if isinstance(market, dict) and isinstance(market.get('plugins', []), list) else []
+    market_version = market_plugins[0].get('version') if len(market_plugins)==1 else None
     if version is None: add(findings,'missing_version','VERSION','创建只包含版本号的 VERSION 文件')
     elif market_version != version: add(findings,'version_mismatch','.claude-plugin/marketplace.json','使 marketplace 版本与 VERSION 一致',market_version,version,['VERSION'])
     registered={Path(str(x).removeprefix('./')).name for x in manifest.get('skills',[])}
     active=active_skill_dirs(root)
     if registered != active: add(findings,'skills_registry_mismatch','.claude-plugin/plugin.json','使注册 Skills 与 skills/ 下活动目录一致',sorted(registered),sorted(active),['skills','.claude-plugin/plugin.json'])
+    stage('checking_skill_catalog')
     metadata = load_skill_metadata(root)
     for skill_name in sorted(active):
         item = metadata.get(skill_name, {})
@@ -219,7 +242,7 @@ def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str,
             add(findings, 'skill_category_invalid', f'skills/{skill_name}/SKILL.md', '将 category 改为允许的分类值', category, sorted(ALLOWED_CATEGORIES), [f'skills/{skill_name}/SKILL.md'])
         if item.get('name') and item['name'] != skill_name:
             add(findings, 'skill_metadata_name_mismatch', f'skills/{skill_name}/SKILL.md', '使 front matter 的 name 与 Skill 目录名一致', item['name'], skill_name, [f'skills/{skill_name}/SKILL.md'])
-    catalog_path = root / 'docs/Skills_说明书.md'
+    catalog_path = root / 'docs/Skills、应用说明书.md'
     documented_categories = load_documented_categories(catalog_path) if catalog_path.is_file() else {}
     category_occurrences = load_documented_category_occurrences(catalog_path) if catalog_path.is_file() else {}
     category_labels = {
@@ -227,7 +250,7 @@ def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str,
         'ai_assisted_learning': 'AI 辅助学习',
         'ai_assisted_teaching': 'AI 辅助教学',
         'ai_assisted_research': 'AI 辅助科研',
-        'common_tool': '常用工具（与 AI 辅助教育无关）',
+        'common_tool': '通用工具',
     }
     for skill_name in sorted(active):
         metadata_category = metadata.get(skill_name, {}).get('category')
@@ -235,39 +258,40 @@ def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str,
         expected_label = category_labels.get(metadata_category)
         occurrences = category_occurrences.get(skill_name, [])
         if len(occurrences) > 1:
-            add(findings, 'skill_catalog_duplicate', 'docs/Skills_说明书.md', '确保每个 Skill 只出现在一个分类概览表中', occurrences, [expected_label] if expected_label else [], ['docs/Skills_说明书.md'])
+            add(findings, 'skill_catalog_duplicate', 'docs/Skills、应用说明书.md', '确保每个 Skill 只出现在一个分类概览表中', occurrences, [expected_label] if expected_label else [], ['docs/Skills、应用说明书.md'])
         if documented_category and expected_label and documented_category != expected_label:
-            add(findings, 'skill_category_mismatch', 'docs/Skills_说明书.md', '使说明书分类与 SKILL.md front matter 的 category 一致', documented_category, expected_label, ['docs/Skills_说明书.md', f'skills/{skill_name}/SKILL.md'])
+            add(findings, 'skill_category_mismatch', 'docs/Skills、应用说明书.md', '使说明书分类与 SKILL.md front matter 的 category 一致', documented_category, expected_label, ['docs/Skills、应用说明书.md', f'skills/{skill_name}/SKILL.md'])
         if not documented_category:
-            add(findings, 'skill_catalog_missing', 'docs/Skills_说明书.md', '在分类概览表中补充活动 Skill', None, expected_label or sorted(category_labels.values()), ['docs/Skills_说明书.md', f'skills/{skill_name}/SKILL.md'])
-    documented = load_documented_scenarios(catalog_path) if catalog_path.is_file() else {}
+            add(findings, 'skill_catalog_missing', 'docs/Skills、应用说明书.md', '在分类概览表中补充活动 Skill', None, expected_label or sorted(category_labels.values()), ['docs/Skills、应用说明书.md', f'skills/{skill_name}/SKILL.md'])
+    findings.extend(overview_findings(root, on_stage=stage))
+    stage('checking_skill_scenarios')
+    documented = {}
     for skill_name in sorted(active):
-        examples = documented.get(skill_name, [])
+        contract = root / f'skills/{skill_name}/SKILL.md'
+        examples = parse_scenario_examples(contract.read_text(encoding='utf-8'))
+        documented[skill_name] = examples
         if not examples:
-            add(findings, 'skill_scenario_missing', 'docs/Skills_说明书.md', '在对应 Skill 详细章节添加至少一个具体场景示例', [], ['id', 'user_request', 'when_to_call', 'invocation', 'expected_output'], ['docs/Skills_说明书.md', f'skills/{skill_name}/SKILL.md'])
-            continue
+            add(findings, 'skill_scenario_missing', rel(root, contract), '在 Skill 文档添加至少一个具体场景示例', [], ['id', 'user_request', 'when_to_call', 'invocation', 'expected_output'], [rel(root, contract)])
         for example in examples:
             missing = validate_scenario(example)
             if missing:
-                add(findings, 'skill_scenario_invalid', 'docs/Skills_说明书.md', '补齐具体场景示例的结构化字段', missing, [], ['docs/Skills_说明书.md', f'skills/{skill_name}/SKILL.md'])
-    documented_names = {name for name in documented if name in active}
-    for name in sorted(set(documented) - active):
-        if name not in {'AI 辅助学习', 'AI 辅助教学', 'AI 辅助科研', '常用工具（与 AI 辅助教育无关）', '项目功能'}:
-            add(findings, 'skill_scenario_unknown', 'docs/Skills_说明书.md', '删除未注册 Skill 的场景章节或注册对应 Skill', name, sorted(active), ['docs/Skills_说明书.md'])
+                add(findings, 'skill_scenario_invalid', rel(root, contract), '补齐具体场景示例字段', missing, [], [rel(root, contract)])
+    stage('checking_environment')
     example_keys=parse_keys(root/'.env.example')
     env_files=sorted(p for p in root.glob('.env*') if p.is_file() and p.name != '.env.example')
     env_key_map={rel(root,p):sorted(parse_keys(p)) for p in env_files}
     for env_path, keys in env_key_map.items():
         unknown=sorted(set(keys)-example_keys)
         if unknown: add(findings,'env_key_not_declared',env_path,'删除未在 .env.example 声明的键或补充示例声明',unknown,sorted(example_keys),['.env.example'])
+    stage('checking_dependencies')
     req=parse_requirements(root/'runtime/.venv/requirements.txt'); mods=imported_modules(root)
     map_path=root/'utils/references/python-package-map.json'
     try: mapping=json.loads(map_path.read_text(encoding='utf-8'))
     except Exception: mapping={'yaml':'pyyaml','jsonschema':'jsonschema'}
     std=set(getattr(sys,'stdlib_module_names',())) | {'__future__'}
-    local={p.stem for base in (root/'skills',root/'utils',root/'runtime') if base.exists() for p in base.rglob('*.py')}
+    local={p.stem for base in (root/'skills',root/'utils',root/'runtime') if base.exists() for p in source_files(base, '.py')}
     mapping={str(k).lower():str(v).lower() for k,v in mapping.items()}
-    third={mapping.get(m,m) for m in mods if m not in std and m not in local and m not in {'skills','utils','runtime'}}
+    third={mapping.get(m,m).lower().replace('_','-') for m in mods if m not in std and m not in local and m not in {'skills','utils','runtime'}}
     undeclared=sorted(third-set(req))
     if undeclared: add(findings,'undeclared_import','runtime/.venv/requirements.txt','声明活动 Python 脚本使用的第三方包',undeclared,sorted(req),['skills','utils','runtime'])
     installed=installed_versions(root)
@@ -276,10 +300,14 @@ def audit(root: Path, previous: dict[str, Any] | None = None) -> tuple[dict[str,
     if missing: add(findings,'dependency_not_installed','runtime/.venv/requirements.txt','安装 requirements 中缺失的依赖',missing,sorted(installed),['runtime/.venv/requirements.txt'])
     mismatch=sorted(k for k,spec in req.items() if k in installed and not version_ok(installed[k],spec))
     if mismatch: add(findings,'dependency_version_mismatch','runtime/.venv/requirements.txt','调整 requirements 或安装满足约束的版本',{k:installed[k] for k in mismatch},{k:req[k] for k in mismatch},['runtime/.venv'])
+    stage('checking_applications')
     application_findings, applications = audit_applications(root)
     findings.extend(application_findings)
+    release_findings, release_facts = history_findings(root, scope, on_stage=stage)
+    findings.extend(release_findings)
+    facts['release_history'] = release_facts
     facts.update({'documents':facts['documents'],'version':version,'marketplace_version':market_version,'registered_skills':sorted(registered),'active_skills':sorted(active),'skill_metadata':metadata,'documented_categories':documented_categories,'documented_scenarios':documented,'requirements':req,'imports':sorted(third),'installed':installed,'env_keys':env_key_map,'applications': applications})
-    cache={'schema_version':'1.0','checker_version':'1.2','facts':facts,'documents':facts['documents'],'finding_count':len(findings)}
+    cache={'schema_version':'1.0','checker_version':'1.4','facts':facts,'documents':facts['documents'],'finding_count':len(findings)}
     return {'schema_version':'1.0','findings':findings,'summary':{'checked_documents':len(docs),'findings':len(findings),'status':'differences_found' if findings else 'consistent'}}, cache
 
 

@@ -1,0 +1,14 @@
+{
+  "schema_version": "3.0",
+  "input_paths": [
+    "path/to/markdown-or-directory"
+  ],
+  "navigation_json": null,
+  "navigation_title": "课程学习导航",
+  "student_profile": null,
+  "preview_chars": 400,
+  "max_heading_depth": 6,
+  "max_candidates_per_batch": 30,
+  "max_preview_chars_per_batch": 12000,
+  "max_total_preview_chars": 120000
+}

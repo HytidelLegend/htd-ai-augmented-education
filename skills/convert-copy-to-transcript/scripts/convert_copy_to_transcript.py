@@ -77,7 +77,8 @@ def state_store(root: Path, run_id: str) -> WorkflowStateStore:
         raise TranscriptWorkflowError("run ID 无效")
     return WorkflowStateStore(root=root, workflow=WORKFLOW, run_id=run_id, definition=DEFINITION,
                               schema_path=DEFAULT_PROJECT_DIR / "utils/references/workflow-state-v1.schema.json",
-                              events_dir=root / "logs" / WORKFLOW / "runs" / run_id / "events")
+                              events_dir=root / "logs" / WORKFLOW / "runs" / run_id / "events",
+                              event_filename=f'{run_id}.jsonl')
 
 
 def normalize_text(raw: str) -> str:
@@ -372,7 +373,8 @@ def apply_decisions(*, root: Path, run_id: str, decisions_file: Path | None = No
     return status(root=root, run_id=run_id)
 
 
-def approve(*, root: Path, run_id: str, confirmed_by: str, preview_sha256: str) -> dict[str, Any]:
+def approve(*, root: Path, run_id: str, confirmed_by: str, preview_sha256: str,
+            policy: dict[str, Any] | None = None) -> dict[str, Any]:
     store, state, paths, _ = _load_and_verify_input(root, run_id)
     if state["status"] in {"approved", "verified", "completed"}:
         receipt = read_json(paths["approval"])
@@ -401,6 +403,20 @@ def approve(*, root: Path, run_id: str, confirmed_by: str, preview_sha256: str) 
             "confirmed_at": iso_timestamp(),
             "rules_version": state["rules_version"],
         }
+        if policy is not None:
+            if (policy.get('kind') != 'skip_review' or policy.get('caller_skill') != WORKFLOW
+                    or not policy.get('caller_run_id') or not policy.get('turn_id')
+                    or Path(policy['caller_run_id']).name != policy['caller_run_id']
+                    or policy['caller_run_id'] in ('.', '..')
+                    or confirmed_by != 'policy:dialogue-no-review'):
+                raise TranscriptWorkflowError('无效的对话免确认策略')
+            caller = read_json(root / 'logs' / WORKFLOW / 'runs' / policy['caller_run_id'] / 'state.json')
+            if (caller.get('mode') != 'convert' or caller.get('status') != 'normalizing_turns'
+                    or caller.get('children', {}).get(policy['turn_id']) != run_id):
+                raise TranscriptWorkflowError('免确认策略必须绑定当前对话转换及发言')
+            receipt['approval_kind'] = 'policy_skip_review'
+            receipt['policy'] = policy
+            state['approval_policy'] = policy
         write_json(paths["approval"], receipt)
         state = store.transition(
             state,
@@ -437,6 +453,13 @@ def verify(*, root: Path, run_id: str, tts_manifest: Path | None = None) -> dict
     preview = read_utf8(paths["preview"])
     validate_preview(source, scan, decisions, run_id, preview)
     receipt = read_json(paths["approval"])
+    if receipt.get('approval_kind') == 'policy_skip_review':
+        if receipt.get('policy') != state.get('approval_policy') or receipt.get('confirmed_by') != 'policy:dialogue-no-review':
+            raise TranscriptWorkflowError('免确认回执与运行策略不一致')
+        policy = receipt['policy']
+        caller = read_json(root / 'logs' / WORKFLOW / 'runs' / policy['caller_run_id'] / 'state.json')
+        if caller.get('mode') != 'convert' or caller.get('children', {}).get(policy['turn_id']) != run_id:
+            raise TranscriptWorkflowError('免确认策略的上游绑定失效')
     approved_hash = file_sha256(paths["approved"])
     if approved_hash != receipt["approved_transcript_sha256"] or approved_hash != file_sha256(paths["preview"]):
         raise TranscriptWorkflowError("权威逐字稿、确认回执与预览哈希不一致")

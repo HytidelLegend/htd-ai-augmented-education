@@ -34,7 +34,14 @@ def resolve_heading_locator(root: Path, source_path: Path, locator: dict[str, An
     ]
     if len(matches) != 1:
         raise LocatorInvalidError(f"章节定位不能唯一解析：{locator['heading_text']}")
-    return matches[0]
+    result = dict(matches[0])
+    if locator.get('content_span'):
+        span = locator['content_span']
+        count = len(source_path.read_text(encoding='utf-8-sig').splitlines())
+        if not 1 <= span['start_line'] <= span['end_line'] <= count:
+            raise LocatorInvalidError('正文片段范围无效')
+        result.update(start_line=span['start_line'], end_line=span['end_line'])
+    return result
 
 
 def build_evidence(root: Path, source_path: Path, *, heading: dict | None = None) -> list[dict]:

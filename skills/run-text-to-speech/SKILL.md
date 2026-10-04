@@ -26,7 +26,7 @@ scenario_examples:
 - 所有时间字段及 run ID 均调用 `utils/scripts/timestamp.py`；同秒冲突追加数字后缀。
 - `start`、`status`、`resume`、`verify`、`deliver` 为统一入口；原有专用命令仍可调用。`deliver` 仅交付 completed 运行，并重新验证，不隐式批准草稿。
 - CLI 退出码遵循说明书：成功 0、输入无效 2、等待决策 3、验证失败 4、运行错误 5、依赖或配置缺失 6。`status` 查询成功返回 0。
-- 确认只能依据当前稿件或试听的精确 SHA-256；用户未明确确认时不能填写确认回执。普通恢复不得越过确认门禁。
+- 需要确认的运行只能依据当前稿件或试听的精确 SHA-256；用户未明确确认时不能填写人工确认回执。普通恢复不得越过确认门禁。`dialogue` 模式或显式 `--skip-preview` 按冻结策略跳过试听，不生成试听批准回执。
 - 文件输入只读；同名目标冲突不覆盖。Mock 回归不读取密钥，不访问云端。
 
 ## 跨 Skill 契约
@@ -36,6 +36,14 @@ scenario_examples:
 TTS 保存上游引用快照，重新读取上游状态、执行上游 `verify` 并复核所有哈希。批准稿与确认回执必须一致；上游发生变化后拒绝继续合成。不共写上游运行目录，不自动选择最新 run。
 
 ## 输入与命令
+
+### 双音色对话模式
+
+CLI 可选 `--mode dialogue`，支持 `start/status/resume/verify/deliver`。使用 `start --mode dialogue --dialogue-run-id <问答转换运行ID>` 消费已完成的对话转换；`--config` 默认读取 `skills/create-dialogue-podcast/config.yaml`，冻结后端、两人音色与两种间隔。后续命令均带 `--mode dialogue --run-id <ID>`。
+
+对话模式由 `utils/scripts/dialogue_pipeline.py` 的状态机编排：`prepared → checking_configuration → synthesizing_turns → merging_audio → verifying_outputs → publishing → completed`。每个发言建立单音色子运行，复用现有合成、恢复与校验；显式关闭试听并保存有效配置快照，保留免确认策略的上游引用，不伪造试听回执。最终统一解码、按角色间隔拼接并生成 `podcast.mp3`；不朗读角色标签，不在开头、结尾或内部批次插入角色间隔。对话输出为 clean 音频；合并词、句与角色时间戳保存于该对话运行日志目录。
+
+单音色入口也可用 `--skip-preview` 显式关闭本次试听，恢复沿用快照；不提供时保持既有试听流程。编排器可用 `--requested-run-id` 预登记单音色子运行 ID，已有运行拒绝覆盖。对话消费者重新核对上游、角色顺序、音色、后端、所有子音频及最终时长；默认单音色输入契约与历史运行兼容性不变。
 
 直接输入 `--text` 或 UTF-8 `--input-file`（恰选一个）时，脚本调用项目的 `convert-copy-to-transcript`，为两个 skill 分别建立独立 run，暂停等待上游确认。使用 `--transcript-run-id` 引用已有批准稿；默认 producer 为 `convert-copy-to-transcript`，可用 `--producer-skill run-speech-to-text` 消费已经批准的 ASR 逐字稿。
 
@@ -59,9 +67,37 @@ runtime/.venv/Scripts/python.exe skills/run-text-to-speech/scripts/cli.py verify
 
 不支持 SSML。批准稿中的 `{{pause:1500ms}}` 原样保留，在 API payload 中移除并转为静音事件；非法指令拒绝合成。白噪音仅在持续静音区间铺底，默认 -70 dBFS，保留 clean 母版，不混入人声区间。
 
+## 地字语境改写
+
+在分批前调用共享 `utils/scripts/speech_context_rewrites.py`。针对修饰动作或状态的结构助词“地”，仅在 TTS 请求中改为“的”，例如“欢喜地笑 → 欢喜的笑”；“土地”“目的地”等词汇读音保留。禁止全局替换“地”，也不把“欢喜地”作为单独的特化兜底。
+
+脚本先保护词汇用法，再按明确的状语＋动作模式判断；明确的“认真地理解”“慢慢地上楼”优先于跨语法边界的“地理”“地上”词形。不能确定时进入 `awaiting_context_decisions`，Agent 根据完整句意区分助词与词汇用法，仅填写候选 ID 和 `replace/keep/uncertain`。`uncertain` 必须向用户确认，不能猜测后继续。候选包含字符位置、上下文及源文本 SHA-256，脚本生成模板并验证精确覆盖，禁止增删候选或修改位置。下方 JSON 示例由 `scripts/render_voice_docs.py --context-only` 从共享模板生成，`--check --context-only` 校验一致性。
+
+<!-- context-decisions:start -->
+```json
+{
+  "schema_version": 1,
+  "decisions": [
+    {
+      "candidate_id": "de-0001",
+      "action": "replace"
+    }
+  ]
+}
+```
+<!-- context-decisions:end -->
+
+提交命令：`runtime/.venv/Scripts/python.exe skills/run-text-to-speech/scripts/cli.py apply-context-decisions --root . --run-id <ID> --input <决策JSON>`。存在未决项时返回退出码 3，`status` 返回 0；普通 `resume` 不得跳过语境判断。无候选或全部自动判断时直接推进，不调用 Agent。非法提交不改变运行状态或产物。
+
+单音色、试听、正式合成、修订、停顿重定时和对话子运行共用规则。停顿重定时沿用基准运行已冻结的语境判断，不重复询问、不改变读法；无语境标记的历史基准保留其原有请求语义。对话模式等待时回执提供子运行及候选模板，使用 `resume --mode dialogue --input <同一决策JSON>` 提交；播客编排沿用其 `resume --input` 向当前等待子运行转交。
+
+批准稿、`synthesis.txt` 和 batch 文本保持原文坐标；日志 `generated/request-text.txt` 保存实际改写请求，`context-candidates.json` 保存冻结判断，`context-decisions.template.json` 由脚本生成，提交归档为带内容哈希的不可变 `context-decisions-<hash>.json`；接受决策后的候选也另存不可变快照，状态保存失败后可从旧检查点安全重试。Edge-TTS 与火山引擎发送相同的改写文本，不新增注音或 SSML。规则版本、实际改写及请求指纹纳入校验；影响发音的 batch 禁止复用旧音频。服务词级时间戳映射回原文，歧义或遗漏改写字符时暂停验证。
+
+独立 `verify` 复核候选快照、决策归档指纹、请求文本、状态与 manifest 的输入一致性及公开词级与句级时间戳。对齐歧义或遗漏字符进入可恢复的 `paused_verification`，无效服务时间戳在 batch 发布前拒绝，修复后 resume 可重新合成。单音色、对话和播客的非法决策输入返回退出码 2，且不改变任何运行检查点或既有日志。历史运行没有语境版本标记时保留原验证语义，不原地改写。正式交付格式保持不变。
+
 ## 状态机与完成门禁
 
-`initialized → workspace_resolved → input_validated → backend_resolved → checking_backend_environment → awaiting_transcript → transcript_validated → input_staged → batches_planned → preview_synthesizing → preview_rendering → preview_ready → paused_preview_approval → synthesizing → batches_ready → merging_audio → timestamps_merged → adding_white_noise → final_audio_ready → verifying → completed`。
+`initialized → workspace_resolved → input_validated → backend_resolved → checking_backend_environment → awaiting_transcript → transcript_validated → input_staged → scanning_context → awaiting_context_decisions（必要时）→ applying_context_rewrites → validating_context_rewrites → batches_planned → preview_synthesizing → preview_rendering → preview_ready → paused_preview_approval → synthesizing → batches_ready → merging_audio → timestamps_merged → adding_white_noise → final_audio_ready → verifying → completed`。
 
 暂停状态为 `paused_input_mismatch`、`paused_transcript_not_ready`、`paused_preview_approval`、`paused_retryable`、`paused_configuration`、`paused_verification`。迁移由共享状态存储校验；普通 `resume` 不得越过试听确认。上游 handoff 在合成、发布及独立 `verify` 时重新校验，`--run-id` 与 `--output-dir` 均执行同一检查；白噪音素材在铺底前复核预检指纹。
 
@@ -99,3 +135,7 @@ Edge 使用词级边界（100 ns 转整数毫秒），聚合现有句级时间�
 本地预检与启动共用 `utils/scripts/tts_backend.py` 的配置、参数和音色映射检查；仅检查所选后端，不要求另一后端的音色映射可用。锁定版本与运行快照中的适配器版本变化时暂停，防止错误复用。
 
 上游尚未完成时，回执沿用 `next_action` 字段指明上游命令，`error.message` 给出上游 Skill 和 run ID。先完成该上游操作与 verify，再 resume 本次 TTS；不能在正常等待语义决策的转换运行上调用 resume。
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["title", "rationale", "reviewed_source_ids"],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "\\S"},
+    "rationale": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "reviewed_source_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

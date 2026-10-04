@@ -10,8 +10,11 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from .markdown_structure import sha256_file
-from .structured_io import read_json, write_json, json_digest, validate_json_schema
+from .structured_io import read_json, write_json, json_digest, validate_json_schema, write_text_transaction
+import json
 from .timestamp import iso_timestamp
+from .learning_material_display import material_name, display_mapping, display_bytes
+import hashlib
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / 'utils/references/learning-material-backup-v1.schema.json'
@@ -35,8 +38,13 @@ def backup_stage(run_dir, name, **fields):
     write_json(path, {'state': name, 'updated_at': iso_timestamp(), **fields})
 
 
-def finish_backup(run_dir, plan):
+def finish_backup(run_dir, plan, project=None):
     backup_stage(run_dir, 'backup_ready', plan_sha256=json_digest(plan))
+    if project is not None:
+        for material in plan['materials']:
+            for file in material_files(material):
+                if 'display_sha256' in file:
+                    (project / 'artifacts/material-backup-staging' / (file['display_sha256'] + '.display')).unlink(missing_ok=True)
 
 
 def markdown_references(text):
@@ -132,12 +140,13 @@ class BackupApprovalRequired(ValueError):
         super().__init__('请确认全部备份路径后，使用 --backup-plan-sha256 恢复')
         self.receipt = {'status': 'awaiting_backup_approval', 'project_dir': str(project),
                         'run_dir': str(run_dir), 'backup_plan_sha256': digest,
-                        'planned_paths': [f['backup_path'] for m in plan['materials'] for f in material_files(m)],
+                        'planned_paths': [path for m in plan['materials'] for f in material_files(m) for path in (f['backup_path'], f.get('display_path')) if path],
                         'manifest_path': 'artifacts/学习材料备份.json', 'message': str(self)}
         self.receipt['planned_paths'].append('artifacts/学习材料备份.json')
         if manifest_path(project).is_file():
             old = read_json(manifest_path(project))
             self.receipt['planned_paths'].append(f'artifacts/material-backup-history/{json_digest(old)}.json')
+            self.receipt['planned_paths'].extend(p.relative_to(project).as_posix() for p in display_history(project, old))
 
 
 class BackupConflict(ValueError):
@@ -201,26 +210,36 @@ def collect_files(root, source):
 def backup_plan(root, project, navigation):
     root = root.resolve(); project = checked_project(root, project)
     materials = []
+    names = [material_name(s['path']).casefold() for s in navigation['sources']]
     for source in navigation['sources']:
         original = checked_path(root, source['path'])
         if sha256_file(original) != source['sha256']:
             raise ValueError(f"来源哈希已变化：{source['path']}")
         files = collect_files(root, original)
         version = json_digest(files)
-        base = Path('学习材料') / source['source_id'] / version
+        base = Path('artifacts/material-originals') / source['source_id'] / version
+        name = material_name(source['path'])
+        if names.count(name.casefold()) > 1: name += '-' + source['source_id']
+        display_base = Path('学习材料') / name if len(navigation['sources']) > 1 else Path('学习材料')
+        mapping = display_mapping(files, source['path'], display_base)
         for file in files:
             file['backup_path'] = (base / file['original_path']).as_posix()
+            file['display_path'] = mapping[file['original_path']]
+            content = display_bytes(root, file, mapping)
+            file['display_sha256'] = hashlib.sha256(content).hexdigest()
+            file['display_size_bytes'] = len(content)
         materials.append({'source_id': source['source_id'], 'original_path': source['path'],
                           'backup_path': (base / source['path']).as_posix(), 'sha256': source['sha256'],
                           'size_bytes': original.stat().st_size, 'version': version,
+                          **{k: next(f for f in files if f['original_path'] == source['path'])[k] for k in ('display_path', 'display_sha256', 'display_size_bytes')},
                           'resources': [f for f in files if f['original_path'] != source['path']]})
-    plan = {'schema_version': '1.0', 'navigation_revision': json_digest(navigation), 'materials': materials}
+    plan = {'schema_version': '2.0', 'navigation_revision': json_digest(navigation), 'materials': materials}
     validate_json_schema(plan, SCHEMA)
     return plan
 
 
 def material_files(material):
-    return [{key: material[key] for key in ('original_path', 'backup_path', 'sha256', 'size_bytes')}, *material['resources']]
+    return [{key: material[key] for key in ('original_path', 'backup_path', 'sha256', 'size_bytes', 'display_path', 'display_sha256', 'display_size_bytes') if key in material}, *material['resources']]
 
 
 def protect_inputs(root, plan, targets):
@@ -231,7 +250,7 @@ def protect_inputs(root, plan, targets):
         raise ValueError('学习材料与运行写入路径重合，禁止修改输入文件')
 
 
-def verify_backup(root, project, navigation, plan=None):
+def verify_backup(root, project, navigation, plan=None, *, staged_display=False):
     project = checked_project(root, project)
     plan = read_json(manifest_path(project)) if plan is None else plan
     validate_json_schema(plan, SCHEMA)
@@ -256,15 +275,54 @@ def verify_backup(root, project, navigation, plan=None):
             relative = Path(file['original_path'])
             if relative.is_absolute() or '..' in relative.parts:
                 raise ValueError('材料备份原始路径越界')
-            expected_path = (Path('学习材料') / material['source_id'] / version / relative).as_posix()
+            prefix = '学习材料' if plan['schema_version'] == '1.0' else 'artifacts/material-originals'
+            expected_path = (Path(prefix) / material['source_id'] / version / relative).as_posix()
             if file['backup_path'] != expected_path:
                 raise ValueError('材料备份路径与版本不一致')
             path = checked_path(project, file['backup_path'])
-            path.relative_to(project / '学习材料')
+            path.relative_to(project / prefix)
             if not path.is_file() or path.stat().st_size != file['size_bytes'] or sha256_file(path) != file['sha256']:
                 raise ValueError(f"材料副本缺失或损坏：{file['backup_path']}")
+            if plan['schema_version'] == '2.0':
+                display = checked_path(project, file['display_path'])
+                display.relative_to(project / '学习材料')
+                if staged_display: display = project / 'artifacts/material-backup-staging' / (file['display_sha256'] + '.display')
+                if not display.is_file() or display.stat().st_size != file['display_size_bytes'] or sha256_file(display) != file['display_sha256']:
+                    raise ValueError(f"展示副本缺失或损坏：{file['display_path']}")
+        if plan['schema_version'] == '2.0':
+            mapping = {f['original_path']: f['display_path'] for f in records}
+            archive_root = project / 'artifacts/material-originals' / material['source_id'] / version
+            for file in records:
+                expected_bytes = display_bytes(archive_root, file, mapping)
+                if hashlib.sha256(expected_bytes).hexdigest() != file['display_sha256']:
+                    raise ValueError('展示副本与原件引用映射不一致')
         paths[source['path']] = checked_path(project, material['backup_path'])
     return paths
+
+
+def display_history(project, old):
+    updates = {}
+    for material in old.get('materials', []):
+        for file in material_files(material):
+            if 'display_path' in file:
+                relative = Path(file['display_path']).relative_to('学习材料')
+                if '..' in relative.parts: raise ValueError('历史展示路径越界')
+                archived = checked_path(project, Path('artifacts/material-history') / material['source_id'] / material['version'] / relative)
+                source = checked_path(project, file['display_path'])
+                if source.is_file(): updates[archived] = source.read_bytes()
+    return updates
+
+
+def display_publication(project, plan):
+    updates = display_history(project, read_json(manifest_path(project))) if manifest_path(project).is_file() else {}
+    for material in plan['materials']:
+        for file in material_files(material):
+            if 'display_path' in file:
+                staged = project / 'artifacts/material-backup-staging' / (file['display_sha256'] + '.display')
+                data = staged.read_bytes()
+                if hashlib.sha256(data).hexdigest() != file['display_sha256']: raise ValueError('展示材料暂存副本损坏')
+                updates[checked_path(project, file['display_path'])] = data
+    return updates
 
 
 def ensure_backup(root, project, navigation, run_dir, approved_plan_sha256=None, refresh=False, publish=True):
@@ -304,6 +362,12 @@ def ensure_backup(root, project, navigation, run_dir, approved_plan_sha256=None,
                         break
                     if parent.exists() and not parent.is_dir():
                         raise BackupConflict(parent.relative_to(project).as_posix())
+        old_displays = {f['display_path']: f['display_sha256'] for m in old.get('materials', []) for f in material_files(m) if 'display_path' in f} if manifest_path(project).is_file() else {}
+        for material in plan['materials']:
+            for file in material_files(material):
+                target = checked_path(project, file['display_path'])
+                if target.exists() and (not target.is_file() or sha256_file(target) not in (file['display_sha256'], old_displays.get(file['display_path']))):
+                    raise BackupConflict(file['display_path'])
         stage('copying_materials', plan_sha256=digest)
         for material in plan['materials']:
             for file in material_files(material):
@@ -326,18 +390,32 @@ def ensure_backup(root, project, navigation, run_dir, approved_plan_sha256=None,
                 os.link(temporary, target)
                 temporary.unlink()
         stage('verifying_backup', plan_sha256=digest)
+        display_updates = {}
+        for material in plan['materials']:
+            files = material_files(material)
+            mapping = {f['original_path']: f['display_path'] for f in files}
+            for file in files:
+                data = display_bytes(root, file, mapping)
+                if hashlib.sha256(data).hexdigest() != file['display_sha256']: raise ValueError('展示材料生成期间源文件发生变化')
+                display_updates[checked_path(project, file['display_path'])] = data
+        for target, data in display_updates.items():
+            temporary = project / 'artifacts/material-backup-staging' / (hashlib.sha256(data).hexdigest() + '.display')
+            temporary.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_bytes(data)
         for material in plan['materials']:
             for file in material_files(material):
                 if sha256_file(checked_path(project, file['backup_path'])) != file['sha256'] or sha256_file(checked_path(root, file['original_path'])) != file['sha256']:
                     raise ValueError('备份复制校验失败')
-        verify_backup(root, project, navigation, plan=plan)
+        verify_backup(root, project, navigation, plan=plan, staged_display=True)
         if not publish:
             return plan
+        updates = display_publication(project, plan)
         if manifest_path(project).is_file():
             old = read_json(manifest_path(project))
-            write_json(project / 'artifacts/material-backup-history' / f"{json_digest(old)}.json", old)
-        write_json(manifest_path(project), plan)
-        finish_backup(run_dir, plan)
+            updates[project / 'artifacts/material-backup-history' / f"{json_digest(old)}.json"] = json.dumps(old, ensure_ascii=False, indent=2) + '\n'
+        updates[manifest_path(project)] = json.dumps(plan, ensure_ascii=False, indent=2) + '\n'
+        write_text_transaction(updates)
+        finish_backup(run_dir, plan, project)
         return verify_backup(root, project, navigation)
     except BackupApprovalRequired:
         raise

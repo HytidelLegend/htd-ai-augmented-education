@@ -16,6 +16,15 @@ def iso_timestamp(value: datetime | None = None) -> str:
     return current.replace(microsecond=0).isoformat(timespec="seconds")
 
 
+def parse_filename_timestamp(value: str) -> str:
+    """Read a timestamp previously generated for a filename or project ID."""
+    import re
+    match = re.fullmatch(r'(?:nav-)?(\d{8}T\d{6})(?:_\d+)?', value)
+    if not match:
+        raise ValueError('文件名时间戳无效')
+    return iso_timestamp(datetime.strptime(match[1], '%Y%m%dT%H%M%S'))
+
+
 def filename_timestamp(value: datetime | None = None) -> str:
     """Return a filename-safe timestamp in YYYYMMDDTHHMMSS form."""
     return iso_timestamp(value).replace("-", "").replace(":", "")

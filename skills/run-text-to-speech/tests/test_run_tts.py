@@ -15,6 +15,8 @@ import wave
 
 import pytest
 
+from utils.scripts import speech_context_rewrites as context_rewrites
+
 from utils.scripts.file_transaction import _process_is_alive
 from utils.scripts.tts_handoff import validate_tts_handoff
 
@@ -1199,3 +1201,266 @@ def test_independent_preview_gate_requires_state_and_config_fingerprint(tmp_path
     manifest["preview"] = {}
     tts.write_json(manifest_path, manifest)
     assert "manifest 试听记录与运行状态不一致" in tts.verify_output(output)["errors"]
+
+
+@pytest.mark.parametrize("source,expected", [
+    ("欢喜地笑，认真地学习。", "欢喜的笑，认真的学习。"),
+    ("土地、目的地、当地、地理和地面。", "土地、目的地、当地、地理和地面。"),
+    ("他慢慢地上楼，认真地理解当地地理。", "他慢慢的上楼，认真的理解当地地理。"),
+    ("欢喜地笑，土地上的人高兴地说。", "欢喜的笑，土地上的人高兴的说。"),
+])
+def test_context_rules_and_lexical_protection(source, expected):
+    packet = context_rewrites.scan(source)
+    assert context_rewrites.rewrite(source, packet) == expected
+
+
+@pytest.mark.parametrize("backend", ["edge-tts", "volcengine"])
+def test_context_requests_restore_original_timestamps(tmp_path, monkeypatch, capsys, backend):
+    sent = []
+    original = tts.MockClient.synthesize
+    def synthesize(self, text, *args):
+        sent.append(text)
+        return original(self, text, *args)
+    monkeypatch.setattr(tts.MockClient, "synthesize", synthesize)
+    source = "他欢喜地笑，认真地学习当地地理。"
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", source,
+                                         "--backend", backend, "--mock"], capsys) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "completed", receipt
+    assert "".join(sent) == "他欢喜的笑，认真的学习当地地理。"
+    state = tts.state_store(tmp_path, receipt["run_id"]).load()
+    assert Path(state["approved_transcript_path"]).read_text(encoding="utf-8") == source
+    timing = tts.read_json(Path(receipt["output_dir"]) / "full.timestamps.json")
+    assert "".join(item["text"] for item in timing["items"]) == source
+    assert tts.verify_output(Path(receipt["output_dir"]))["status"] == "passed"
+    request = Path(state["input"]["request_text_path"])
+    request.write_text(source, encoding="utf-8")
+    assert tts.verify_output(Path(receipt["output_dir"]))["status"] == "failed"
+    request.unlink()
+    assert tts.verify_output(Path(receipt["output_dir"]))["status"] == "failed"
+
+
+def test_context_semantic_decisions_gate_resume_and_reject_invalid(tmp_path, capsys):
+    source = "他欣然地接受邀请，走到目的地。"
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", source, "--mock"], capsys) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "awaiting_context_decisions"
+    store = tts.state_store(tmp_path, receipt["run_id"])
+    saved = store.path.read_bytes()
+    assert tts.main(["resume", "--root", str(tmp_path), "--run-id", receipt["run_id"]]) == 1
+    capsys.readouterr()
+    assert store.path.read_bytes() == saved
+    response = tmp_path / "response.json"
+    tts.write_json(response, {"schema_version": 1, "decisions": [{"candidate_id": "unknown", "action": "replace"}]})
+    command = ["apply-context-decisions", "--root", str(tmp_path), "--run-id", receipt["run_id"], "--input", str(response)]
+    assert tts.main(command) == 1
+    capsys.readouterr()
+    assert store.path.read_bytes() == saved
+    packet = tts.read_json(Path(store.load()["input"]["context_packet_path"]))
+    draft = context_rewrites.template(packet)
+    tts.write_json(response, draft)
+    assert tts.main(command) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "awaiting_context_decisions"
+    draft["decisions"][0]["action"] = "replace"
+    tts.write_json(response, draft)
+    assert tts.main(command) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "completed", result
+    assert tts.verify_output(Path(result["output_dir"]))["status"] == "passed"
+
+
+def test_context_snapshot_rejects_modified_auto_rules():
+    packet = context_rewrites.scan("土地上的人欢喜地笑。")
+    packet["candidates"][0]["action"] = "replace"
+    with pytest.raises(ValueError):
+        context_rewrites.rewrite("土地上的人欢喜地笑。", packet)
+
+
+@pytest.mark.parametrize("text", ["他积极地上台。", "认真地理研究。", "他不断地方便大家。"])
+def test_context_lexical_match_does_not_swallow_unclear_adverb(text):
+    packet = context_rewrites.scan(text)
+    assert packet["candidates"][0]["action"] == "uncertain"
+    with pytest.raises(ValueError, match="未确定"):
+        context_rewrites.rewrite(text, packet)
+
+
+def test_context_fingerprint_depends_on_each_occurrence():
+    text = "欣然地笑。欣然地笑。"
+    packet = context_rewrites.scan(text)
+    packet = context_rewrites.apply_decisions(packet, {"schema_version": 1, "decisions": [
+        {"candidate_id": "de-0001", "action": "replace"},
+        {"candidate_id": "de-0002", "action": "keep"}]})
+    state = {"backend": "edge-tts", "speaker_id": "TEST_voice", "resource_id": "", "audio": {}, "mock": True,
+             "input": {"context_rewrites": packet}}
+    assert tts.synthesis_fingerprint(state, "欣然地笑。", synthesis_start=0) != tts.synthesis_fingerprint(state, "欣然地笑。", synthesis_start=5)
+
+
+
+def _resolve_context(root, receipt, action, capsys):
+    state = tts.state_store(root, receipt["run_id"]).load()
+    draft = context_rewrites.template(tts.read_json(Path(state["input"]["context_packet_path"])))
+    for decision in draft["decisions"]:
+        decision["action"] = action
+    response = root / "context-response.json"
+    tts.write_json(response, draft)
+    assert tts.main(["apply-context-decisions", "--root", str(root), "--run-id", receipt["run_id"], "--input", str(response)]) == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def test_context_retime_preserves_resolved_semantics(tmp_path, monkeypatch, capsys):
+    source = "他欣然地接受。{{pause:1000ms}}他高兴地笑。"
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", source, "--mock"], capsys) == 0
+    base = _resolve_context(tmp_path, json.loads(capsys.readouterr().out), "replace", capsys)
+    assert base["status"] == "completed", base
+    source_path = tmp_path / "retimed.txt"
+    source_path.write_text(source.replace("1000ms", "500ms"), encoding="utf-8")
+    calls = []
+    original = tts.MockClient.synthesize
+    def spy(self, text, *args):
+        calls.append(text)
+        return original(self, text, *args)
+    monkeypatch.setattr(tts.MockClient, "synthesize", spy)
+    assert run_after_transcript_approval(["retime-pauses", "--root", str(tmp_path), "--base-run-id", base["run_id"],
+                                         "--input-file", str(source_path)], capsys) == 0
+    retimed = json.loads(capsys.readouterr().out)
+    assert retimed["status"] == "completed", retimed
+    assert calls == []
+    assert tts.verify_output(Path(retimed["output_dir"]))["status"] == "passed"
+
+
+def test_context_alignment_failure_is_recoverable_verification_pause(tmp_path, monkeypatch, capsys):
+    original = tts.MockClient.synthesize
+    def mismatched(self, text, *args):
+        audio, events = original(self, text, *args)
+        events[0]["items"][0]["text"] = "无关"
+        return audio, events
+    monkeypatch.setattr(tts.MockClient, "synthesize", mismatched)
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", "欢喜地笑。", "--mock"], capsys) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "paused_verification", receipt
+    assert not list((Path(receipt["output_dir"]) / "batches").glob("*.wav"))
+    monkeypatch.setattr(tts.MockClient, "synthesize", original)
+    assert tts.main(["resume", "--root", str(tmp_path), "--run-id", receipt["run_id"]]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "completed"
+
+
+def test_context_verify_detects_changed_sentence_text(tmp_path, capsys):
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", "欢喜地笑。", "--mock"], capsys) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["status"] == "completed"
+    path = Path(receipt["output_dir"]) / "full.timestamps.json"
+    timestamps = tts.read_json(path)
+    timestamps["sentences"][0]["text"] = "欢喜的笑。"
+    tts.write_json(path, timestamps)
+    assert tts.verify_output(path.parent)["status"] == "failed"
+
+
+def test_context_restore_rejects_missing_repeated_word():
+    with pytest.raises(ValueError):
+        context_rewrites.restore_items([{"text": "的", "start_ms": 0, "end_ms": 10}], "地的", "的的")
+
+
+def test_context_decision_save_failure_can_be_retried(tmp_path, monkeypatch, capsys):
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", "欣然地笑。", "--mock"], capsys) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    store = tts.state_store(tmp_path, receipt["run_id"])
+    state = store.load()
+    draft = context_rewrites.template(tts.read_json(Path(state["input"]["context_packet_path"])))
+    draft["decisions"][0]["action"] = "replace"
+    saved = store.path.read_bytes()
+    def fail_save(value):
+        raise OSError("TEST state save interrupted")
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "save", fail_save)
+        with pytest.raises(OSError):
+            tts.submit_context_decisions(state, store, draft)
+    assert store.path.read_bytes() == saved
+    state = tts.submit_context_decisions(store.load(), store, draft)
+    state = tts.advance_state_machine(state, store)
+    assert state["status"] == "completed", state
+
+
+@pytest.mark.parametrize("response", [
+    {"schema_version": 1, "decisions": [{"candidate_id": "de-0001", "action": "bad"}]},
+    {"schema_version": 1, "decisions": []},
+    {"schema_version": 1, "decisions": [{"candidate_id": "de-0001", "action": "replace"}, {"candidate_id": "de-0001", "action": "keep"}]},
+])
+def test_context_invalid_response_is_readonly_cli_input_error(tmp_path, capsys, response):
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", "欣然地笑。", "--mock"], capsys) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    store = tts.state_store(tmp_path, receipt["run_id"])
+    before = {p: p.read_bytes() for p in store.run_dir.rglob("*") if p.is_file()}
+    response_path = tmp_path / "invalid-response.json"
+    tts.write_json(response_path, response)
+    cli = SCRIPT.parent / "cli.py"
+    result = subprocess.run([sys.executable, str(cli), "apply-context-decisions", "--root", str(tmp_path),
+                             "--run-id", receipt["run_id"], "--input", str(response_path)], capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 2, result.stdout
+    assert json.loads(result.stdout)["error_code"] == "validation_error"
+    assert before == {p: p.read_bytes() for p in store.run_dir.rglob("*") if p.is_file()}
+
+
+def test_context_semantic_decision_archive_is_verified(tmp_path, capsys):
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", "欣然地笑。", "--mock"], capsys) == 0
+    result = _resolve_context(tmp_path, json.loads(capsys.readouterr().out), "replace", capsys)
+    assert result["status"] == "completed"
+    info = tts.state_store(tmp_path, result["run_id"]).load()["input"]
+    archive = Path(info["context_decisions_path"])
+    tts.write_json(archive, {"schema_version": 1, "decisions": []})
+    assert tts.verify_output(Path(result["output_dir"]))["status"] == "failed"
+
+
+def test_context_revision_regenerates_changed_reading_and_reuses_other_batches(tmp_path, monkeypatch, capsys):
+    original_config = tts.load_config
+    def small_batches(path=None):
+        config = original_config(path)
+        config["batching"].update(base_min_chars=8, base_max_chars=12)
+        return config
+    monkeypatch.setattr(tts, "load_config", small_batches)
+    source = "他欣然地接受邀请。" + "普通内容继续展开。" * 4 + "结尾内容继续展开。"
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", source, "--mock"], capsys) == 0
+    base = _resolve_context(tmp_path, json.loads(capsys.readouterr().out), "keep", capsys)
+    assert base["status"] == "completed"
+    query = tmp_path / "query.txt"
+    query.write_text("结尾内容继续展开", encoding="utf-8")
+    assert tts.main(["locate", "--root", str(tmp_path), "--run-id", base["run_id"], "--query-file", str(query)]) == 0
+    match_id = json.loads(capsys.readouterr().out)["candidates"][0]["match_id"]
+    replacement = tmp_path / "replacement.txt"
+    replacement.write_text("结尾内容再次展开", encoding="utf-8")
+    calls = []
+    synth = tts.MockClient.synthesize
+    def spy(self, text, *args):
+        calls.append(text)
+        return synth(self, text, *args)
+    monkeypatch.setattr(tts.MockClient, "synthesize", spy)
+    assert run_after_transcript_approval(["revise", "--root", str(tmp_path), "--base-run-id", base["run_id"],
+                                         "--replace", match_id + "=" + str(replacement)], capsys) == 0
+    revised = _resolve_context(tmp_path, json.loads(capsys.readouterr().out), "replace", capsys)
+    assert revised["status"] == "completed", revised
+    assert any("欣然的" in text for text in calls)
+    assert len(calls) == 2
+    manifest = tts.read_json(Path(revised["output_dir"]) / "manifest.json")
+    assert len(manifest["revision"]["affected_batch_ids"]) == 2
+    assert manifest["revision"]["reused_batch_ids"]
+    assert tts.verify_output(Path(revised["output_dir"]))["status"] == "passed"
+
+
+
+def test_context_reordered_replay_never_overwrites_immutable_snapshot(tmp_path, monkeypatch, capsys):
+    assert run_after_transcript_approval(["run", "--root", str(tmp_path), "--text", "欣然地笑。", "--mock"], capsys) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    store = tts.state_store(tmp_path, receipt["run_id"])
+    state = store.load()
+    draft = context_rewrites.template(tts.read_json(Path(state["input"]["context_packet_path"])))
+    state = tts.submit_context_decisions(state, store, draft)
+    archive = Path(state["input"]["context_decisions_path"])
+    archived_bytes = archive.read_bytes()
+    reordered = {"decisions": [{"action": "uncertain", "candidate_id": "de-0001"}], "schema_version": 1}
+    def fail_save(value):
+        raise OSError("TEST interrupted replay")
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "save", fail_save)
+        with pytest.raises(OSError):
+            tts.submit_context_decisions(state, store, reordered)
+    assert archive.read_bytes() == archived_bytes
+    assert tts.file_sha256(archive) == store.load()["input"]["context_decisions_sha256"]

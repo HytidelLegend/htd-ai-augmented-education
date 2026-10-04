@@ -1,0 +1,23 @@
+{
+  "schema_version": "2.0",
+  "navigation_title": "课程学习导航",
+  "student_analysis": {
+    "explicit_facts": [], "inferred_level": "unknown", "knowledge_strengths": [], "knowledge_gaps": [],
+    "application_gaps": [], "learning_goals": [], "excluded_goals": [], "resource_constraints": [],
+    "recommended_entry_level": "unknown", "recommended_difficulty_curve": "由浅入深",
+    "evidence_refs": [], "confidence": "low", "curriculum_impacts": [], "student_change_reviewed": false
+  },
+  "course_overview": {"purpose": "", "core_questions": [], "completion_criteria": []},
+  "stage_overviews": [], "module_overviews": [], "overview_units": [],
+  "source_metadata": [], "source_relationships": [], "relationship_records": [], "items": [], "existing_unit_updates": [],
+  "coverage_gaps": [], "deferred_items": [],
+  "lesson_generation_policy": {
+    "read_scope": "只读取当前单元、必要先修摘要和少量相邻上下文。",
+    "locator_failure": "定位失败时报告并暂停，不得改读整本资料。",
+    "distinguish_sources": "区分原书观点、Agent 解释、现代案例和待核验事实。",
+    "language_style": "使用大白话、生活化类比和贴近学习者场景的案例。",
+    "fact_check_current": "涉及可能变化的事实时使用可靠来源核验。",
+    "application_exercises": "每课生成面向学习者真实项目的应用练习。",
+    "image_policy": "source_pointer_only"
+  }
+}

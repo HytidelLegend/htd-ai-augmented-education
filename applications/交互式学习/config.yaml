@@ -1,0 +1,6 @@
+poll_interval_seconds: 5
+graph:
+  min_zoom: 25
+  max_zoom: 400
+  prerequisite_color: '#8B5CF6'
+  teaching_color: '#0891B2'

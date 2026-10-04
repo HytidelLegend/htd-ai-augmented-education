@@ -1,0 +1,10 @@
+assessment:
+  max_multiple_choice_questions: 5
+ordering:
+  max_candidate_orders: 10
+  weights:
+    goal_match: 0.40
+    background_match: 0.30
+    difficulty_smoothness: 0.15
+    topic_continuity: 0.10
+    downstream_unlock: 0.05

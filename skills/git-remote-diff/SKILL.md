@@ -1,6 +1,6 @@
 ---
 name: git-remote-diff
-category: common_tool
+category: project_function
 description: 检查当前项目是否为 Git 仓库，刷新远端引用并比较本地仓库、远端默认分支和工作区状态，生成包含文件差异的 JSON 与用户可读 Markdown 报告。当用户要求检查 Git 信息、判断项目是否与云端最新版一致或查看本地与远端差异时使用。
 ---
 
@@ -41,4 +41,15 @@ runtime/.venv/Scripts/python.exe skills/git-remote-diff/scripts/cli.py status --
 完成门禁：状态为 `complete`，JSON 结构有效，Markdown 包含 JSON 中的全部差异文件，路径为仓库相对路径，且报告不泄露认证信息。
 # CLI
 
-入口：`python skills/git-remote-diff/scripts/cli.py`。支持 `create-request`、`start`、`status`、`resume`、`verify`；默认状态写入 `logs/git-remote-diff/runs/<run-id>/`，日志仅为文本且不纳入 Git。退出码遵循 `docs/Skills_说明书.md`。
+入口：`python skills/git-remote-diff/scripts/cli.py`。支持 `create-request`、`start`、`status`、`resume`、`verify`；默认状态写入 `logs/git-remote-diff/runs/<run-id>/`，日志仅为文本且不纳入 Git。退出码遵循 `docs/Skills、应用说明书.md`。
+
+## 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: compare-remote-state
+    user_request: "检查本地分支和远端默认分支有哪些差异"
+    when_to_call: "用户要求检查 Git 同步状态或本地与远端文件差异时"
+    invocation: "start → verify"
+    expected_output: "生成提交、工作区和文件差异报告，不执行 merge 或 reset"
+```

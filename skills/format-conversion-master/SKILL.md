@@ -72,6 +72,26 @@ runtime/.venv/Scripts/python.exe skills/format-conversion-master/scripts/cli.py 
 只有状态为 `completed`、转换产物通过对应格式验证、发布回执和哈希闭合时，才可以报告完成。EPUB → Markdown 遇到无法解析的 XHTML 或疑似扫描内容必须暂停并说明原因。
 # CLI
 
-入口：`python skills/format-conversion-master/scripts/cli.py`。支持 `create-request`（别名 `init-request`）、`start`、`status`、`resume`、`verify`、`list-formats`；状态和文本日志写入 `logs/format-conversion-master/runs/<run-id>/`，正式转换产物写入 `outputs/format-conversion-master/runs/<run-id>/`。退出码遵循 `docs/Skills_说明书.md`；暂停返回 3，网络和运行错误返回 5，参数错误返回 2，验证失败返回 4，依赖缺失返回 6。
+入口：`python skills/format-conversion-master/scripts/cli.py`。支持 `create-request`（别名 `init-request`）、`start`、`status`、`resume`、`verify`、`list-formats`；状态和文本日志写入 `logs/format-conversion-master/runs/<run-id>/`，正式转换产物写入 `outputs/format-conversion-master/runs/<run-id>/`。退出码遵循 `docs/Skills、应用说明书.md`；暂停返回 3，网络和运行错误返回 5，参数错误返回 2，验证失败返回 4，依赖缺失返回 6。
 
 新运行目录直接使用共享工具生成的 `YYYYMMDDTHHMMSS`，同秒冲突追加 `_1`、`_2`；旧运行 ID 仍可恢复。请求快照保存哈希，恢复和完成验证时检查；修改配置应新建运行，`.env` 密钥更新不影响快照。轮询超时从开始轮询时计算，不包含上传耗时。缺少 `python-dotenv` 时仅 MinerU 分支进入 `paused_dependency`，EPUB 无需此依赖。API 鉴权错误和上传签名地址过期分别处理；鉴权请求禁止重定向，存储重定向只允许 HTTPS。完成验证同时核对产物清单状态、磁盘回执和状态中的回执。共享 `utils/scripts/file_publish.py` 验证目录副本后发布；已完成运行再次 `resume` 也重新验证产物。
+
+## 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: convert-epub-to-markdown
+    user_request: "把这个 EPUB 转成 Markdown，保留目录、表格和链接"
+    when_to_call: "用户要求转换 EPUB 或继续既有转换运行时"
+    invocation: "start --to md → verify"
+    expected_output: "生成经过验证的 Markdown 文件，不覆盖已有目标文件"
+  - id: convert-document-to-markdown
+    user_request: "把这个本地 PDF 或 Word 文档转成 Markdown"
+    when_to_call: "用户提供本地 DOC、DOCX、PDF 并要求转 Markdown 时"
+    invocation: "start --to md → status/resume → verify"
+    expected_output: "在对应 run 的 mineru/ 子目录交付完整 MinerU 解析包"
+```
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

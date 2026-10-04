@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "packet_sha256", "commits"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commits": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["version", "updates", "skipped", "no_core_reason"],
+        "properties": {
+          "version": {"type": "string", "pattern": "^0\\.1\\.(0|[1-9][0-9]*)$"},
+          "no_core_reason": {"type": "string"},
+          "updates": {
+            "type": "array", "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["summary", "evidence_ids"],
+              "properties": {
+                "summary": {"type": "string", "minLength": 1, "maxLength": 180},
+                "evidence_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^E[0-9]{4,}$"}}
+              }
+            }
+          },
+          "skipped": {
+            "type": "array", "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["evidence_id", "reason"],
+              "properties": {
+                "evidence_id": {"type": "string", "pattern": "^E[0-9]{4,}$"},
+                "reason": {"type": "string", "minLength": 1, "maxLength": 180}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

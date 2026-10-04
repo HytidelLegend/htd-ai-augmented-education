@@ -32,6 +32,14 @@ StartedCallback = Callable[[int], None]
 OutputCallback = Callable[[str, str], bool | None]
 
 
+def external_path(path: Path) -> Path:
+    """Give Windows media tools an extended path when the normal path is too long."""
+    value = str(path)
+    if os.name == 'nt' and path.is_absolute() and len(value) >= 240 and not value.startswith('\\\\?\\'):
+        return Path('\\\\?\\UNC\\' + value[2:] if value.startswith('\\\\') else '\\\\?\\' + value)
+    return path
+
+
 class _BoundedOutput:
     def __init__(self, limit: int) -> None:
         self.limit = limit
@@ -65,7 +73,9 @@ def run_command(
     capture_limit_chars: int = 256 * 1024,
 ) -> RunResult:
     """Run one command without a shell and persist a UTF-8 diagnostic log."""
-    command = tuple(str(item) for item in args)
+    def argument(item):
+        return str(external_path(item)) if isinstance(item, Path) else str(item)
+    command = tuple(argument(item) for item in args)
     if not command:
         raise ValueError("子进程参数不能为空")
     if output_mode not in {"capture", "tee", "inherit"}:

@@ -15,8 +15,8 @@ PRODUCERS = {"convert-copy-to-transcript", "run-speech-to-text"}
 def producer_paths(root: Path, skill: str, run_id: str) -> dict[str, Path]:
     if skill not in PRODUCERS or not run_id or Path(run_id).name != run_id or run_id in {".", ".."}:
         raise ValueError("Invalid transcript producer or run ID")
-    output = root / "outputs" / skill / "runs" / run_id
-    output.resolve().relative_to((root / "outputs" / skill / "runs").resolve())
+    from .artifact_location import output_dir
+    output = output_dir(root, skill, run_id)
     base = output / "transcript" if skill == "convert-copy-to-transcript" else output
     return {"manifest": base / "manifest.json", "approved_transcript": base / "approved/transcript.txt",
             "approval_receipt": base / ("approved/approval-receipt.json" if skill == "convert-copy-to-transcript"

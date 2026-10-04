@@ -1,0 +1,13 @@
+{
+  "schema_version": "3.0",
+  "input_paths": [],
+  "student_profile": null,
+  "source_language": null,
+  "teaching_language": null,
+  "interaction_mode": "file_driven",
+  "counterfactual_mode": false,
+  "knowledge_base_mode": "specified_materials",
+  "topic": null,
+  "bilingual_glossary": null,
+  "project_dir": null
+}

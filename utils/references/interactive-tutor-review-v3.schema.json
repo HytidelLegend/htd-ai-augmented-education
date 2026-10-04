@@ -45,6 +45,12 @@
           "feedback": {
             "type": "string"
           },
+          "reference_explanation": {
+            "type": "string"
+          },
+          "difference_notes": {
+            "type": "string"
+          },
           "misconceptions": {
             "type": "array",
             "items": {

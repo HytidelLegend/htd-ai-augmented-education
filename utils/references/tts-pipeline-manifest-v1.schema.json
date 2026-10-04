@@ -11,6 +11,7 @@
     "components"
   ],
   "properties": {
+    "embedded_logs": {"type": "string"},
     "schema_version": {
       "enum": [
         "1.0",

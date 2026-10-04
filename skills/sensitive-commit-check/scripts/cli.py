@@ -11,7 +11,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["create-request", "start", "audit-skills", "audit-history", "status", "review", "resume", "verify", "submit-decision"])
     parser.add_argument("--run-id")
     parser.add_argument("--scope", choices=["worktree", "staged"], default="worktree")
-    parser.add_argument("--supplemental", choices=["none", "skills_regression", "historical_runs", "all"], default="all")
+    parser.add_argument("--supplemental", choices=["none", "skills_regression", "historical_runs", "all"], default="none")
     parser.add_argument("--input")
     args, extra = parser.parse_known_args(argv)
     mapping = {"create-request": "start"}
@@ -32,6 +32,8 @@ def main(argv: list[str] | None = None) -> int:
     code = subprocess.run(cmd, check=False).returncode
     if code == 0:
         return 0
+    if code == 2:
+        return 2
     if args.command == "verify":
         return code if code in {3, 4} else 4
     if args.command in {"submit-decision", "review"}:

@@ -28,6 +28,7 @@ class TtsWorkspace:
     root: Path
     run_id: str
     layout_profile: str = "standalone"
+    embedded_logs: Path | None = None
 
     @property
     def inputs_dir(self) -> Path:
@@ -38,6 +39,8 @@ class TtsWorkspace:
     @property
     def logs_dir(self) -> Path:
         if self.layout_profile == "education":
+            if self.embedded_logs is not None:
+                return self.embedded_logs
             project = self.root.parents[3]
             return project / "logs" / self.root.parents[1].name / "runs" / self.run_id
         return self.root
@@ -134,10 +137,15 @@ def create_workspace(
     lock_path = root / "logs" / "tts-workspace" / "initialize.lock"
     with project_lock(lock_path, "tts-workspace:initialize"):
         resolved_run_id = run_id or unique_filename_timestamp(_workspace_run_ids(parent, root))
+        from .artifact_location import output_dir as run_output_dir, is_embedded
+        embedded = is_embedded(root, workflow, resolved_run_id)
+        if embedded:
+            workspace_dir = run_output_dir(root, workflow, resolved_run_id)
         workspace = TtsWorkspace(
             workspace_dir or parent / resolved_run_id,
             resolved_run_id,
             layout_profile,
+            root / 'logs' / workflow / 'runs' / resolved_run_id if embedded else None,
         )
         if workspace.pipeline_manifest.exists():
             raise TtsWorkspaceError(f"共享输出目录已存在：{workspace.root}")
@@ -155,6 +163,7 @@ def create_workspace(
                     "speech": {"status": "not_started", "manifest_path": None},
                 },
             }
+        if embedded: manifest['embedded_logs'] = str(workspace.logs_dir)
         _validate_pipeline_manifest(manifest)
         write_json(workspace.pipeline_manifest, manifest)
         return workspace
@@ -170,9 +179,17 @@ def open_workspace(path: Path) -> TtsWorkspace:
     manifest = read_json(manifest_path)
     _validate_pipeline_manifest(manifest)
     run_id = str(manifest.get("pipeline_run_id", ""))
+    if manifest.get('embedded_logs'):
+        logs = Path(manifest['embedded_logs']).resolve()
+        if logs.name != run_id or logs.parent.name != 'runs' or logs.parents[2].name != 'logs':
+            raise TtsWorkspaceError('组合运行日志路径不符合约定')
+        from .artifact_location import output_dir as run_output_dir
+        if run_output_dir(logs.parents[3], logs.parents[1].name, run_id).resolve() != workspace_path:
+            raise TtsWorkspaceError('组合运行产物绑定与 workspace 不一致')
     if workspace_path.name.startswith(WORKSPACE_PREFIX) and workspace_path.name.removeprefix(WORKSPACE_PREFIX) != run_id:
         raise TtsWorkspaceError("pipeline manifest 的 run ID 与目录名不一致")
-    workspace = TtsWorkspace(workspace_path, run_id, str(manifest.get("layout_profile", "standalone")))
+    workspace = TtsWorkspace(workspace_path, run_id, str(manifest.get("layout_profile", "standalone")),
+                             Path(manifest['embedded_logs']) if manifest.get('embedded_logs') else None)
     return workspace
 
 

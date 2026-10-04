@@ -112,3 +112,18 @@ runtime/.venv/Scripts/python.exe utils/scripts/render_span_examples.py `
   --source skills/mark-memory-spans/references/math-span-examples.json `
   --target skills/mark-memory-spans/references/span-examples.md
 ```
+
+## 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: mark-memory-points
+    user_request: "请标出这段知识中适合挖空记忆的要点"
+    when_to_call: "用户提供纯文本并要求提取、标记或修改记忆要点时"
+    invocation: "start → resume → deliver → verify"
+    expected_output: "返回带「」标记的 Markdown、包含源文本 SHA-256 的 span JSON，以及挖空后的主干检查结果"
+```
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。

@@ -27,7 +27,7 @@ BASE_SOURCES = (
     "SOURCE_OF_TRUTH.md",
     "docs/PRDs",
     "docs/architecture",
-    "docs/Skills_说明书.md",
+    "docs/Skills、应用说明书.md",
     "docs/contributing",
     "docs/security",
     "docs/更新历史.md",

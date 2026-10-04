@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "2.0"
+    },
+    "producer_skill": {
+      "const": "convert-copy-to-transcript"
+    },
+    "producer_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "transcript_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "transcript_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "policy": {
+      "const": "dialogue-no-review"
+    },
+    "turns": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "properties": {
+          "turn_id": {
+            "type": "string",
+            "pattern": "^t[0-9]{4,}$"
+          },
+          "role": {
+            "enum": [
+              "questioner",
+              "answerer"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "spoken_text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_block_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^b[0-9]{3,}$"
+            }
+          },
+          "handoff": {
+            "type": "object",
+            "required": [
+              "schema_version",
+              "producer_skill",
+              "producer_run_id",
+              "manifest_path",
+              "manifest_sha256",
+              "approved_transcript_path",
+              "approved_transcript_sha256",
+              "approval_receipt_path",
+              "approval_receipt_sha256"
+            ],
+            "properties": {
+              "schema_version": {
+                "const": "1.0"
+              },
+              "producer_skill": {
+                "enum": [
+                  "convert-copy-to-transcript",
+                  "run-speech-to-text"
+                ]
+              },
+              "producer_run_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "manifest_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "manifest_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "approved_transcript_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "approved_transcript_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "approval_receipt_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "approval_receipt_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "turn_id",
+          "role",
+          "text",
+          "spoken_text",
+          "source_block_ids",
+          "handoff"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "producer_skill",
+    "producer_run_id",
+    "transcript_path",
+    "transcript_sha256",
+    "policy",
+    "turns"
+  ],
+  "additionalProperties": false
+}

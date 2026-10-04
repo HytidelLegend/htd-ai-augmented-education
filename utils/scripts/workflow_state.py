@@ -71,6 +71,7 @@ class WorkflowStateStore:
         run_dir: Path | None = None,
         state_dir: Path | None = None,
         events_dir: Path | None = None,
+        event_filename: str | None = None,
     ) -> None:
         self.root = root.resolve()
         self.workflow = workflow
@@ -83,6 +84,9 @@ class WorkflowStateStore:
         self.path = self.state_dir / "state.json"
         self.lock_path = self.state_dir / "state.lock"
         self.events_dir = events_dir.resolve() if events_dir else self.root / "logs" / workflow / "events"
+        if event_filename is not None and Path(event_filename).name != event_filename:
+            raise WorkflowStateError('事件文件名必须是单个文件名')
+        self.event_filename = event_filename
         default_schema = self.root / "utils" / "references" / "workflow-state-v1.schema.json"
         self.schema_path = schema_path or default_schema
         schema = read_json(self.schema_path)
@@ -140,7 +144,7 @@ class WorkflowStateStore:
         details: dict[str, Any] | None = None,
     ) -> None:
         now = iso_timestamp()
-        event_path = self.events_dir / f"{now[:10]}.jsonl"
+        event_path = self.events_dir / (self.event_filename or f"{now[:10]}.jsonl")
         persisted = max((int(row.get("sequence", 0)) for row in read_jsonl(event_path)
                          if row.get("run_id") == self.run_id), default=0)
         state["event_sequence"] = max(int(state.get("event_sequence", 0)), persisted) + 1
@@ -156,7 +160,7 @@ class WorkflowStateStore:
             "details": details or {},
         }
         append_jsonl(
-            self.events_dir / f"{now[:10]}.jsonl",
+            event_path,
             [payload],
             key_fields=("run_id", "sequence"),
         )

@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "overview",
+    "goal",
+    "progress",
+    "aspects",
+    "strengths",
+    "weaknesses",
+    "unverified",
+    "next_steps"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "3.0"
+    },
+    "overview": {
+      "type": "string"
+    },
+    "goal": {
+      "type": "string"
+    },
+    "progress": {
+      "type": "object",
+      "required": [
+        "completed",
+        "pending",
+        "skipped"
+      ],
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "aspects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "unit_id",
+          "title",
+          "learning_status",
+          "mastery",
+          "classification",
+          "evidence_refs",
+          "evidence"
+        ],
+        "properties": {
+          "unit_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "mastery": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "learning_status": {
+            "enum": [
+              "pending",
+              "awaiting_answer",
+              "completed",
+              "retry",
+              "skipped"
+            ]
+          },
+          "classification": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "lesson_id",
+                "question_id",
+                "type",
+                "score",
+                "label",
+                "link"
+              ],
+              "properties": {
+                "lesson_id": {
+                  "type": "string"
+                },
+                "question_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "multiple_choice",
+                    "open_ended"
+                  ]
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "label": {
+                  "type": "string"
+                },
+                "link": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "strengths": {
+      "$ref": "#/$defs/texts"
+    },
+    "weaknesses": {
+      "$ref": "#/$defs/texts"
+    },
+    "unverified": {
+      "$ref": "#/$defs/texts"
+    },
+    "next_steps": {
+      "$ref": "#/$defs/texts"
+    },
+    "track_progress": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "texts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

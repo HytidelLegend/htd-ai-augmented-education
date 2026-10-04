@@ -63,3 +63,18 @@ runtime/.venv/Scripts/python.exe skills/en-writing-master/scripts/cli.py verify 
 `deliver` 是对话适配器的标准入口：它只在 `write`、`grade`、`polish` 成功完成且 `result.md` 存在并通过交付校验时输出模板文本；暂停、验证失败和 `create-tool` 仍输出 JSON 回执。这样同一功能的多次调用都使用同一模板和同一 schema，不依赖 Agent 的临场格式化。
 
 执行层不得绕过模板直接返回自由格式答案。批改只在发现明确问题时给出修改；重复或无信息句应标记为 `delete`。润色必须记录实际修改，若没有必要修改则明确写“无需修改”。发布前必须通过输出 schema 校验。
+
+## 具体场景示例
+
+```yaml
+scenario_examples:
+  - id: polish-english-essay
+    user_request: "请按现有作文工具批改并润色这篇英语作文"
+    when_to_call: "用户提供英语作文并要求批改或润色时"
+    invocation: "start --mode grade|polish → resume → deliver"
+    expected_output: "返回经过验证的批改或润色 Markdown 结果"
+```
+
+## 使用与协议补充
+
+功能调用、配置和运行协议的补充说明见 [使用与协议补充](references/usage-details.md)。
